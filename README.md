@@ -1,0 +1,2 @@
+# go-weathermap
+new phpweathermap
