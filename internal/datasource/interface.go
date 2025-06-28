@@ -14,7 +14,7 @@ type TrafficData struct {
 	InBytes     int64     `json:"in_bytes"`
 	OutBytes    int64     `json:"out_bytes"`
 	Timestamp   time.Time `json:"timestamp"`
-	Utilization float64   `json:"utilization"` // процент 0-100
+	Utilization float64   `json:"utilization"`
 }
 
 type NodeStatus struct {

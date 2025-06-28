@@ -1,15 +1,16 @@
-package main
+package api
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go-weathermap/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"go-weathermap/internal/config"
 )
 
 func TestHealth(t *testing.T) {
@@ -29,8 +30,8 @@ func TestHealth(t *testing.T) {
 			status, http.StatusOK)
 	}
 
-	expected := `{"status":"ok"}` + "\n"
-	if rr.Body.String() != expected {
+	expected := `{"status":"ok"}`
+	if strings.TrimSpace(rr.Body.String()) != expected {
 		t.Errorf("handler returned unexpected body: got %v want %v",
 			rr.Body.String(), expected)
 	}
@@ -51,10 +52,10 @@ func TestAPI(t *testing.T) {
 		request := httptest.NewRequest("POST", "/maps", bytes.NewBufferString(mapConfig))
 		rr := httptest.NewRecorder()
 
-		server.HandleMaps(rr, request)
+		server.ServeHTTP(rr, request)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("CreateMap failed: expected status 200, got %d. Body: %s", rr.Code, rr.Body.String())
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("CreateMap failed: expected status 201, got %d. Body: %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -63,7 +64,7 @@ func TestAPI(t *testing.T) {
 		request := httptest.NewRequest("POST", "/maps", bytes.NewBufferString(mapConfig))
 		rr := httptest.NewRecorder()
 
-		server.HandleMaps(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("Expected status %d for invalid map size, got %d", http.StatusBadRequest, rr.Code)
@@ -76,7 +77,7 @@ func TestAPI(t *testing.T) {
 			nodeConfig := fmt.Sprintf(`{"name": "%s", "position": {"x": %d, "y": %d}}`, nodeName, 100*(i+1), 100)
 			request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes", bytes.NewBufferString(nodeConfig))
 			rr := httptest.NewRecorder()
-			server.HandleMapOperations(rr, request)
+			server.ServeHTTP(rr, request)
 
 			if rr.Code != http.StatusOK {
 				t.Fatalf("AddNode %s failed: status %d, body: %s", nodeName, rr.Code, rr.Body.String())
@@ -88,7 +89,7 @@ func TestAPI(t *testing.T) {
 		nodeConfig := `{"name": "out-of-bounds-node", "position": {"x": 600, "y": 600}}`
 		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes", bytes.NewBufferString(nodeConfig))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("Expected status %d for out-of-bounds node, got %d", http.StatusBadRequest, rr.Code)
@@ -99,10 +100,10 @@ func TestAPI(t *testing.T) {
 		for i := 0; i < len(nodes); i++ {
 			for j := i + 1; j < len(nodes); j++ {
 				linkName := fmt.Sprintf("link-%s-%s", nodes[i], nodes[j])
-				linkConfig := fmt.Sprintf(`{"name": "%s", "from": "%s", "to": "%s"}`, linkName, nodes[i], nodes[j])
+				linkConfig := fmt.Sprintf(`{"name": "%s", "from": "%s", "to": "%s", "bandwidth": "100M"}`, linkName, nodes[i], nodes[j])
 				request := httptest.NewRequest("POST", "/maps/"+mapName+"/links", bytes.NewBufferString(linkConfig))
 				rr := httptest.NewRecorder()
-				server.HandleMapOperations(rr, request)
+				server.ServeHTTP(rr, request)
 				if rr.Code != http.StatusOK {
 					t.Fatalf("AddLink %s failed: status %d, body: %s", linkName, rr.Code, rr.Body.String())
 				}
@@ -111,20 +112,20 @@ func TestAPI(t *testing.T) {
 	})
 
 	t.Run("AddLinkWithInvalidBandwidth", func(t *testing.T) {
-		linkConfig := `{"name": "invalid-bw-link", "from": "node1", "to": "node2", "bandwidth": "100 M"}`
+		linkConfig := `{"name": "invalid-bw-link", "from": "node1", "to": "node2", "bandwidth": "100   M"}`
 		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links", bytes.NewBufferString(linkConfig))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("Expected status %d for invalid bandwidth, got %d", http.StatusBadRequest, rr.Code)
 		}
 	})
 
-	var createdMap MapWithData
+	var createdMap config.MapWithData
 	t.Run("VerifyMapCreation", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("GetMap failed: status %d, body: %s", rr.Code, rr.Body.String())
@@ -150,7 +151,7 @@ func TestAPI(t *testing.T) {
 
 		editRequest := httptest.NewRequest("PATCH", "/maps/"+mapName, bytes.NewBuffer(editMapBody))
 		editRR := httptest.NewRecorder()
-		server.HandleMapOperations(editRR, editRequest)
+		server.ServeHTTP(editRR, editRequest)
 
 		if editRR.Code != http.StatusOK {
 			t.Fatalf("EditMap failed: status %d, body: %s", editRR.Code, editRR.Body.String())
@@ -159,7 +160,7 @@ func TestAPI(t *testing.T) {
 		// Verify map update
 		getRequest := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		getRR := httptest.NewRecorder()
-		server.HandleMapOperations(getRR, getRequest)
+		server.ServeHTTP(getRR, getRequest)
 		if getRR.Code != http.StatusOK {
 			t.Fatalf("GetMap after edit failed: status %d, body: %s", getRR.Code, getRR.Body.String())
 		}
@@ -190,7 +191,7 @@ func TestAPI(t *testing.T) {
 
 		editNodeRequest := httptest.NewRequest("PATCH", fmt.Sprintf("/maps/%s/nodes/%s", mapName, nodeToTest), bytes.NewBuffer(editNodeBody))
 		editRR := httptest.NewRecorder()
-		server.HandleMapOperations(editRR, editNodeRequest)
+		server.ServeHTTP(editRR, editNodeRequest)
 
 		if editRR.Code != http.StatusOK {
 			t.Fatalf("EditNode failed: status %d, body: %s", editRR.Code, editRR.Body.String())
@@ -199,7 +200,7 @@ func TestAPI(t *testing.T) {
 		// Delete Node
 		deleteNodeRequest := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, nodeToTest), nil)
 		deleteRR := httptest.NewRecorder()
-		server.HandleMapOperations(deleteRR, deleteNodeRequest)
+		server.ServeHTTP(deleteRR, deleteNodeRequest)
 		if deleteRR.Code != http.StatusOK {
 			t.Fatalf("DeleteNode failed: status %d, body: %s", deleteRR.Code, deleteRR.Body.String())
 		}
@@ -208,11 +209,11 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyNodeDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("GetMap failed: status %d, body: %s", rr.Code, rr.Body.String())
 		}
-		var currentMap MapWithData
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 		if len(currentMap.Nodes) != 3 {
 			t.Errorf("Expected 3 nodes after deletion, got %d", len(currentMap.Nodes))
@@ -230,7 +231,7 @@ func TestAPI(t *testing.T) {
 	t.Run("DeleteNonExistentNode", func(t *testing.T) {
 		request := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, "non-existent-node"), nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("Expected status %d for deleting non-existent node, got %d", http.StatusNotFound, rr.Code)
 		}
@@ -243,7 +244,7 @@ func TestAPI(t *testing.T) {
 	       ]`
 		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("AddNodesBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
@@ -253,8 +254,8 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyBulkNodesAddition", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
-		var currentMap MapWithData
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 		if len(currentMap.Nodes) != 5 {
 			t.Errorf("Expected 5 nodes after bulk addition, got %d", len(currentMap.Nodes))
@@ -265,7 +266,7 @@ func TestAPI(t *testing.T) {
 		nodesPayload := `[{"name": "bulk-node1", "position": {"x": 50, "y": 50}}]`
 		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusConflict {
 			t.Errorf("Expected status %d for bulk adding existing node, got %d", http.StatusConflict, rr.Code)
@@ -276,7 +277,7 @@ func TestAPI(t *testing.T) {
 		nodesPayload := `[{"name": "out-of-bounds-bulk", "position": {"x": 2000, "y": 2000}}]`
 		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("Expected status %d for bulk adding out-of-bounds node, got %d", http.StatusBadRequest, rr.Code)
@@ -287,7 +288,7 @@ func TestAPI(t *testing.T) {
 		deletePayload := `{"nodes": ["bulk-node1", "bulk-node2"]}`
 		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(deletePayload))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 
 		if rr.Code != http.StatusOK {
 			t.Fatalf("DeleteNodesBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
@@ -297,8 +298,8 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyBulkNodesDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
-		var currentMap MapWithData
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 		if len(currentMap.Nodes) != 3 {
 			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Nodes))
@@ -309,7 +310,7 @@ func TestAPI(t *testing.T) {
 		deletePayload := `{"nodes": ["non-existent-bulk"]}`
 		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(deletePayload))
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusNotFound {
 			t.Errorf("Expected status %d for bulk deleting non-existent node, got %d", http.StatusNotFound, rr.Code)
 		}
@@ -318,14 +319,14 @@ func TestAPI(t *testing.T) {
 	t.Run("DeleteAllLinks", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
-		var currentMap config.Map
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 
 		for _, link := range currentMap.Links {
 			deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/links/%s", mapName, link.Name), nil)
 			deleteRR := httptest.NewRecorder()
-			server.HandleMapOperations(deleteRR, deleteReq)
+			server.ServeHTTP(deleteRR, deleteReq)
 			if deleteRR.Code != http.StatusOK {
 				t.Fatalf("DeleteLink %s failed: status %d, body: %s", link.Name, deleteRR.Code, deleteRR.Body.String())
 			}
@@ -335,8 +336,8 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyLinksDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
-		var currentMap MapWithData
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 		if len(currentMap.Links) != 0 {
 			t.Errorf("Expected 0 links after deletion, got %d", len(currentMap.Links))
@@ -348,7 +349,7 @@ func TestAPI(t *testing.T) {
 		for _, nodeName := range remainingNodes {
 			request := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, nodeName), nil)
 			rr := httptest.NewRecorder()
-			server.HandleMapOperations(rr, request)
+			server.ServeHTTP(rr, request)
 			if rr.Code != http.StatusOK {
 				t.Fatalf("DeleteNode %s failed: status %d, body: %s", nodeName, rr.Code, rr.Body.String())
 			}
@@ -358,8 +359,8 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyNodesDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
-		var currentMap MapWithData
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
 		json.NewDecoder(rr.Body).Decode(&currentMap)
 		if len(currentMap.Nodes) != 0 {
 			t.Errorf("Expected 0 nodes after deletion, got %d", len(currentMap.Nodes))
@@ -369,7 +370,7 @@ func TestAPI(t *testing.T) {
 	t.Run("DeleteMap", func(t *testing.T) {
 		request := httptest.NewRequest("DELETE", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
-		server.HandleMapOperations(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("DeleteMap failed: status %d, body: %s", rr.Code, rr.Body.String())
 		}
@@ -378,7 +379,7 @@ func TestAPI(t *testing.T) {
 	t.Run("VerifyMapDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps", nil)
 		rr := httptest.NewRecorder()
-		server.HandleMaps(rr, request)
+		server.ServeHTTP(rr, request)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("ListMaps failed: status %d, body: %s", rr.Code, rr.Body.String())
 		}

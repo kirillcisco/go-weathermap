@@ -2,6 +2,7 @@ package datasource
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"time"
 )
@@ -13,7 +14,7 @@ func NewMockDataSource(config map[string]any) *MockDataSource {
 }
 
 func (m *MockDataSource) GetTraffic(ctx context.Context) (*TrafficData, error) {
-	utilization := rand.Float64() * 100
+	utilization := math.Round((rand.Float64()*100)*10) / 10
 
 	return &TrafficData{
 		InBytes:     1000000, // 1MB/s

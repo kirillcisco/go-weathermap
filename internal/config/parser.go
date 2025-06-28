@@ -25,14 +25,14 @@ func (p *Parser) ParseYAML(r io.Reader) (*Map, error) {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	if err := p.validate(&m); err != nil {
+	if err := p.Validate(&m); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return &m, nil
 }
 
-func (p *Parser) validate(m *Map) error {
+func (p *Parser) Validate(m *Map) error {
 	if m.Width <= 0 || m.Height <= 0 {
 		return fmt.Errorf("width and height of map %s must be positive", m.Title)
 	}
@@ -63,14 +63,11 @@ func (p *Parser) validate(m *Map) error {
 	return nil
 }
 
-var bandwidthParserRegex = regexp.MustCompile(`^(\d+)\s*(MB|G|TB)$`)
+var bandwidthParserRegex = regexp.MustCompile(`^(\d+)(M|G|T)$`)
 
 func validateBandwidth(bandwidth string) error {
-	if bandwidth == "" { // Not required
-		return nil
-	}
 	if !bandwidthParserRegex.MatchString(bandwidth) {
-		return fmt.Errorf("invalid bandwidth format: '%s', must be like '100MB', '1G' or '1TB'", bandwidth)
+		return fmt.Errorf("invalid bandwidth format: '%s', must be like '100M', '1G' or '1T'", bandwidth)
 	}
 	return nil
 }

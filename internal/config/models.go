@@ -41,7 +41,7 @@ type Scale struct {
 }
 
 type Position struct {
-	X int `yaml:"x" json:"x"` // добавляем json тэги тоже
+	X int `yaml:"x" json:"x"`
 	Y int `yaml:"y" json:"y"`
 }
 
@@ -97,6 +97,20 @@ type TrafficData struct {
 	OutBytes    int64     `yaml:"-"`
 	Timestamp   time.Time `yaml:"-"`
 	Utilization float64   `yaml:"-"`
+}
+
+type MapWithData struct {
+	*Map
+	ProcessedAt time.Time  `json:"processed_at"`
+	LinksData   []LinkData `json:"links_data"`
+	Nodes       []Node     `json:"nodes"`
+	Links       []Link     `json:"links"`
+}
+
+type LinkData struct {
+	Name        string  `json:"name"`
+	Utilization float64 `json:"utilization"`
+	Status      string  `json:"status"`
 }
 
 // custom marshaler for yaml

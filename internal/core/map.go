@@ -86,7 +86,7 @@ func (mp *MapProcessor) Process(ctx context.Context) (*ProcessedMap, error) {
 	for i, node := range mp.config.Nodes {
 		processed.Nodes[i] = ProcessedNode{
 			Node:       node,
-			Status:     "up", // Пока всегда up
+			Status:     "up", // mock
 			LastUpdate: time.Now(),
 		}
 	}
