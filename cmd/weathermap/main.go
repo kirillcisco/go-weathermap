@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,9 +107,11 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			s.getMap(w, r, mapName)
 		case "PUT":
-			s.updateMap(w, r, mapName)
+			s.replaceMap(w, r, mapName)
 		case "DELETE":
 			s.deleteMap(w, r, mapName)
+		case "PATCH":
+			s.editMap(w, r, mapName)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -221,27 +224,27 @@ func (s *Server) getMap(w http.ResponseWriter, r *http.Request, mapName string) 
 }
 
 // PUT /maps/{map-name}
-func (s *Server) updateMap(w http.ResponseWriter, r *http.Request, mapName string) {
-	var updatedMap config.Map
-	if err := json.NewDecoder(r.Body).Decode(&updatedMap); err != nil {
+func (s *Server) replaceMap(w http.ResponseWriter, r *http.Request, mapName string) {
+	var replaceMap config.Map
+	if err := json.NewDecoder(r.Body).Decode(&replaceMap); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if updatedMap.Width <= 0 || updatedMap.Height <= 0 {
+	if replaceMap.Width <= 0 || replaceMap.Height <= 0 {
 		http.Error(w, "Width and Height of map must be greater than 0", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.saveMap(mapName, &updatedMap); err != nil {
+	if err := s.saveMap(mapName, &replaceMap); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "map updated",
-		"name":   updatedMap.Title,
+		"status": "map replaced",
+		"name":   replaceMap.Title,
 	})
 }
 
@@ -257,6 +260,86 @@ func (s *Server) deleteMap(w http.ResponseWriter, r *http.Request, mapName strin
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "map deleted",
+		"name":   mapName,
+	})
+}
+
+// PATCH /maps/{map-name}
+func (s *Server) editMap(w http.ResponseWriter, r *http.Request, mapName string) {
+	var rawRequest map[string]json.RawMessage
+
+	if err := json.NewDecoder(r.Body).Decode(&rawRequest); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	if val, ok := rawRequest["title"]; ok {
+		var title string
+		if err := json.Unmarshal(val, &title); err != nil {
+			http.Error(w, "Invalid title format", http.StatusBadRequest)
+			return
+		}
+		mapConfig.Title = title
+	}
+
+	if val, ok := rawRequest["width"]; ok {
+		var width int
+		if err := json.Unmarshal(val, &width); err != nil {
+			http.Error(w, "Invalid width format", http.StatusBadRequest)
+			return
+		}
+		if width <= 0 {
+			http.Error(w, "Width must be greater than 0", http.StatusBadRequest)
+			return
+		}
+		mapConfig.Width = width
+	}
+
+	if val, ok := rawRequest["height"]; ok {
+		var height int
+		if err := json.Unmarshal(val, &height); err != nil {
+			http.Error(w, "Invalid height format", http.StatusBadRequest)
+			return
+		}
+		if height <= 0 {
+			http.Error(w, "Height must be greater than 0", http.StatusBadRequest)
+			return
+		}
+		mapConfig.Height = height
+	}
+
+	if val, ok := rawRequest["nodes"]; ok {
+		var nodes []config.Node
+		if err := json.Unmarshal(val, &nodes); err != nil {
+			http.Error(w, "Invalid nodes format", http.StatusBadRequest)
+			return
+		}
+		mapConfig.Nodes = nodes
+	}
+
+	if val, ok := rawRequest["links"]; ok {
+		var links []config.Link
+		if err := json.Unmarshal(val, &links); err != nil {
+			http.Error(w, "Invalid links format", http.StatusBadRequest)
+			return
+		}
+		mapConfig.Links = links
+	}
+
+	if err := s.saveMap(mapName, mapConfig); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "map updated",
 		"name":   mapName,
 	})
 }
@@ -308,13 +391,9 @@ func (s *Server) addNode(w http.ResponseWriter, r *http.Request, mapName string)
 
 // PATCH /maps/{map-name}/nodes/{node-name}
 func (s *Server) editNode(w http.ResponseWriter, r *http.Request, mapName string, nodeName string) {
-	var req struct {
-		Label    *string          `json:"label"`
-		Position *config.Position `json:"position"`
-		Icon     *string          `json:"icon"`
-	}
+	var rawRequest map[string]json.RawMessage
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&rawRequest); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -332,18 +411,36 @@ func (s *Server) editNode(w http.ResponseWriter, r *http.Request, mapName string
 			nodeFound = true
 			nameOfFoundNode = mapConfig.Nodes[i].Name
 
-			if req.Label != nil {
-				mapConfig.Nodes[i].Label = *req.Label
+			if val, ok := rawRequest["label"]; ok {
+				var label string
+				if err := json.Unmarshal(val, &label); err != nil {
+					http.Error(w, "Invalid label format", http.StatusBadRequest)
+					return
+				}
+				mapConfig.Nodes[i].Label = label
 			}
-			if req.Position != nil {
-				if req.Position.X > mapConfig.Width || req.Position.Y > mapConfig.Height {
+
+			if val, ok := rawRequest["position"]; ok {
+				var position config.Position
+				if err := json.Unmarshal(val, &position); err != nil {
+					http.Error(w, "Invalid position format", http.StatusBadRequest)
+					return
+				}
+
+				if position.X > mapConfig.Width || position.Y > mapConfig.Height {
 					http.Error(w, "Node position is out of map bounds", http.StatusBadRequest)
 					return
 				}
-				mapConfig.Nodes[i].Position = *req.Position
+				mapConfig.Nodes[i].Position = position
 			}
-			if req.Icon != nil {
-				mapConfig.Nodes[i].Icon = *req.Icon
+
+			if val, ok := rawRequest["icon"]; ok {
+				var icon string
+				if err := json.Unmarshal(val, &icon); err != nil {
+					http.Error(w, "Invalid icon format", http.StatusBadRequest)
+					return
+				}
+				mapConfig.Nodes[i].Icon = icon
 			}
 			break
 		}
@@ -454,6 +551,11 @@ func (s *Server) addLink(w http.ResponseWriter, r *http.Request, mapName string)
 
 	if !nodeExists(newLink.To) {
 		http.Error(w, "To node does not exist", http.StatusBadRequest)
+		return
+	}
+
+	if err := validateBandwidth(newLink.Bandwidth); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -589,4 +691,17 @@ func (s *Server) addMockData(mapConfig *config.Map) *MapWithData {
 func (s *Server) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// TODO: move this
+var bandwidthRegex = regexp.MustCompile(`^(\d+)\s*(MB|G|TB)$`)
+
+func validateBandwidth(bandwidth string) error {
+	if bandwidth == "" {
+		return nil
+	}
+	if !bandwidthRegex.MatchString(bandwidth) {
+		return fmt.Errorf("invalid bandwidth format: %s. must be like 100MB, 1G or 1TB", bandwidth)
+	}
+	return nil
 }

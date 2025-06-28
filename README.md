@@ -1,6 +1,6 @@
 # go-weathermap
 
-This is a little backend service for personal use that's kind of like [PHP Weathermap](https://network-weathermap.com/). It gives you an HTTP API to create, read, update, and delete "weather maps" for a network, and also manage their nodes and links between them.
+This is a little backend service for personal use that's kind of like [PHP Weathermap](http://www.network-weathermap.com/manual/). It gives you an HTTP API to create, read, update, and delete "weather maps" for a network, and also manage their nodes and links between them.
 
 Map configurations are stored in `.yaml` files in a `maps` folder.
 
@@ -111,11 +111,32 @@ You can use this service to manage maps via an RESTful API (request body is limi
     }
     ```
 
-#### Update map configuration
+#### Edit map configuration
+
+*   **PATCH /maps/{map-name}**
+
+    Edit the configuration of the existing map. 
+
+    **Request body (JSON):**
+    ```json
+    {
+      "title": "example-map",
+      "width": 1024,
+      "height": 1024
+    }
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "map updated",
+      "name": "example-map"
+    }
+    ```
 
 *   **PUT /maps/{map-name}**
 
-    Updates the configuration of the existing map. 
+    Replace the configuration of the existing map. 
 
     **Request body (JSON):**
     ```json
@@ -137,7 +158,7 @@ You can use this service to manage maps via an RESTful API (request body is limi
     **Example response:**
     ```json
     {
-      "status": "map updated",
+      "status": "map replaced",
       "name": "example-map"
     }
     ```
@@ -223,7 +244,7 @@ You can use this service to manage maps via an RESTful API (request body is limi
 
 *   **POST /maps/{map-name}/links**
 
-    Add a new link between two nodes.
+    Add a new link between two nodes. (bandwidth option: 100M, 10G, 1TB etc..)
 
     **Request body (JSON):**
     ```json

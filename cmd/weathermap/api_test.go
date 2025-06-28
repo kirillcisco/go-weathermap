@@ -110,6 +110,16 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("AddLinkWithInvalidBandwidth", func(t *testing.T) {
+		linkConfig := `{"name": "invalid-bw-link", "from": "node1", "to": "node2", "bandwidth": "100 M"}`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links", bytes.NewBufferString(linkConfig))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("Expected status %d for invalid bandwidth, got %d", http.StatusBadRequest, rr.Code)
+		}
+	})
+
 	var createdMap MapWithData
 	t.Run("VerifyMapCreation", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
@@ -127,6 +137,45 @@ func TestAPI(t *testing.T) {
 		}
 		if len(createdMap.Links) != 6 {
 			t.Errorf("Expected 6 links for full mesh, got %d", len(createdMap.Links))
+		}
+	})
+
+	t.Run("EditMap", func(t *testing.T) {
+		editMapPayload := map[string]interface{}{
+			"title":  "Updated Title",
+			"width":  1024,
+			"height": 1024,
+		}
+		editMapBody, _ := json.Marshal(editMapPayload)
+
+		editRequest := httptest.NewRequest("PATCH", "/maps/"+mapName, bytes.NewBuffer(editMapBody))
+		editRR := httptest.NewRecorder()
+		server.HandleMapOperations(editRR, editRequest)
+
+		if editRR.Code != http.StatusOK {
+			t.Fatalf("EditMap failed: status %d, body: %s", editRR.Code, editRR.Body.String())
+		}
+
+		// Verify map update
+		getRequest := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		getRR := httptest.NewRecorder()
+		server.HandleMapOperations(getRR, getRequest)
+		if getRR.Code != http.StatusOK {
+			t.Fatalf("GetMap after edit failed: status %d, body: %s", getRR.Code, getRR.Body.String())
+		}
+		var updatedMap config.Map
+		if err := json.NewDecoder(getRR.Body).Decode(&updatedMap); err != nil {
+			t.Fatalf("Failed to decode updated map: %v", err)
+		}
+
+		if updatedMap.Title != "Updated Title" {
+			t.Errorf("Expected title to be 'Updated Title', got '%s'", updatedMap.Title)
+		}
+		if updatedMap.Width != 1024 {
+			t.Errorf("Expected width is 1024, got %d", updatedMap.Width)
+		}
+		if updatedMap.Height != 1024 {
+			t.Errorf("Expected height is 1024, got %d", updatedMap.Height)
 		}
 	})
 

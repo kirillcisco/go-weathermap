@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"io"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -54,7 +55,22 @@ func (p *Parser) validate(m *Map) error {
 		if !nodeMap[link.To] {
 			return fmt.Errorf("link %s references unknown node: %s", link.Name, link.To)
 		}
+		if err := validateBandwidth(link.Bandwidth); err != nil {
+			return fmt.Errorf("link '%s': %w", link.Name, err)
+		}
 	}
 
+	return nil
+}
+
+var bandwidthParserRegex = regexp.MustCompile(`^(\d+)\s*(MB|G|TB)$`)
+
+func validateBandwidth(bandwidth string) error {
+	if bandwidth == "" { // Not required
+		return nil
+	}
+	if !bandwidthParserRegex.MatchString(bandwidth) {
+		return fmt.Errorf("invalid bandwidth format: '%s', must be like '100MB', '1G' or '1TB'", bandwidth)
+	}
 	return nil
 }
