@@ -41,6 +41,8 @@ func main() {
 	fmt.Println("  POST   /maps/{map-name}/nodes 					- add node")
 	fmt.Println("  DELETE /maps/{map-name}/nodes/{node-name}		- delete node")
 	fmt.Println("  PATCH  /maps/{map-name}/nodes/{node-name}		- edit node")
+	fmt.Println("  POST   /maps/{map-name}/nodes/bulk				- add multiple nodes")
+	fmt.Println("  DELETE /maps/{map-name}/nodes/bulk				- delete multiple nodes")
 	fmt.Println("  POST   /maps/{map-name}/links					- add link")
 	fmt.Println("  DELETE /maps/{map-name}/links/{link-name}		- delete link")
 
@@ -134,20 +136,35 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unknown endpoint", http.StatusNotFound)
 		}
 	case 3:
-		// /maps/{map-name}/nodes/{node-name} or /maps/{map-name}/links/{link-name}
-		itemName := parts[2]
+		// /maps/{map-name}/nodes/bulk or
+		// /maps/{map-name}/nodes/{node-name} or
+		// /maps/{map-name}/links/{link-name}
 		switch parts[1] {
 		case "nodes":
-			if r.Method == "DELETE" {
-				s.deleteNode(w, r, mapName, itemName)
-			} else if r.Method == "PATCH" {
-				s.editNode(w, r, mapName, itemName)
+			if parts[2] == "bulk" {
+				switch r.Method {
+				case "POST":
+					s.addNodesBulk(w, r, mapName)
+				case "DELETE":
+					s.deleteNodesBulk(w, r, mapName)
+				default:
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
 			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				nodeName := parts[2]
+				switch r.Method {
+				case "DELETE":
+					s.deleteNode(w, r, mapName, nodeName)
+				case "PATCH":
+					s.editNode(w, r, mapName, nodeName)
+				default:
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
 			}
 		case "links":
+			linkName := parts[2]
 			if r.Method == "DELETE" {
-				s.deleteLink(w, r, mapName, itemName)
+				s.deleteLink(w, r, mapName, linkName)
 			} else {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -386,6 +403,124 @@ func (s *Server) addNode(w http.ResponseWriter, r *http.Request, mapName string)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "node added",
 		"name":   newNode.Name,
+	})
+}
+
+// POST /maps/{map-name}/nodes/bulk
+func (s *Server) addNodesBulk(w http.ResponseWriter, r *http.Request, mapName string) {
+	var newNodes []config.Node
+	if err := json.NewDecoder(r.Body).Decode(&newNodes); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(newNodes) == 0 {
+		http.Error(w, "Empty node list", http.StatusBadRequest)
+		return
+	}
+
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	existingNodes := make(map[string]bool)
+	for _, node := range mapConfig.Nodes {
+		existingNodes[node.Name] = true
+	}
+
+	for _, newNode := range newNodes {
+		if newNode.Name == "" {
+			http.Error(w, "Node name is required", http.StatusBadRequest)
+			return
+		}
+		if existingNodes[newNode.Name] {
+			http.Error(w, "Node "+newNode.Name+" already exists", http.StatusConflict)
+			return
+		}
+		if newNode.Position.X > mapConfig.Width || newNode.Position.Y > mapConfig.Height {
+			http.Error(w, "Node "+newNode.Name+" position is out of map bounds", http.StatusBadRequest)
+			return
+		}
+		existingNodes[newNode.Name] = true
+	}
+
+	mapConfig.Nodes = append(mapConfig.Nodes, newNodes...)
+
+	if err := s.saveMap(mapName, mapConfig); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "nodes added",
+		"nodes_count": len(newNodes),
+	})
+}
+
+// DELETE /maps/{map-name}/nodes/bulk
+func (s *Server) deleteNodesBulk(w http.ResponseWriter, r *http.Request, mapName string) {
+	var requestBody struct {
+		Nodes []string `json:"nodes"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(requestBody.Nodes) == 0 {
+		http.Error(w, "Empty node list", http.StatusBadRequest)
+		return
+	}
+
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	nodesToDelete := make(map[string]bool)
+	for _, name := range requestBody.Nodes {
+		nodesToDelete[name] = true
+	}
+
+	newNodes := make([]config.Node, 0, len(mapConfig.Nodes))
+	deletedCount := 0
+	for _, node := range mapConfig.Nodes {
+		if !nodesToDelete[node.Name] {
+			newNodes = append(newNodes, node)
+		} else {
+			deletedCount++
+		}
+	}
+
+	if deletedCount != len(requestBody.Nodes) {
+		http.Error(w, "One or more nodes not found", http.StatusNotFound)
+		return
+	}
+
+	newLinks := make([]config.Link, 0, len(mapConfig.Links))
+	for _, link := range mapConfig.Links {
+		if !nodesToDelete[link.From] && !nodesToDelete[link.To] {
+			newLinks = append(newLinks, link)
+		}
+	}
+
+	mapConfig.Nodes = newNodes
+	mapConfig.Links = newLinks
+
+	if err := s.saveMap(mapName, mapConfig); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":        "nodes deleted",
+		"deleted_count": deletedCount,
 	})
 }
 

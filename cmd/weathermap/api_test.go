@@ -236,6 +236,85 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("AddNodesBulk", func(t *testing.T) {
+		nodesPayload := `[
+	           {"name": "bulk-node1", "position": {"x": 50, "y": 50}},
+	           {"name": "bulk-node2", "position": {"x": 150, "y": 150}}
+	       ]`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("AddNodesBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("VerifyBulkNodesAddition", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+		var currentMap MapWithData
+		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if len(currentMap.Nodes) != 5 {
+			t.Errorf("Expected 5 nodes after bulk addition, got %d", len(currentMap.Nodes))
+		}
+	})
+
+	t.Run("AddNodesBulkAlreadyExists", func(t *testing.T) {
+		nodesPayload := `[{"name": "bulk-node1", "position": {"x": 50, "y": 50}}]`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+
+		if rr.Code != http.StatusConflict {
+			t.Errorf("Expected status %d for bulk adding existing node, got %d", http.StatusConflict, rr.Code)
+		}
+	})
+
+	t.Run("AddNodesBulkOutOfMap", func(t *testing.T) {
+		nodesPayload := `[{"name": "out-of-bounds-bulk", "position": {"x": 2000, "y": 2000}}]`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("Expected status %d for bulk adding out-of-bounds node, got %d", http.StatusBadRequest, rr.Code)
+		}
+	})
+
+	t.Run("DeleteNodesBulk", func(t *testing.T) {
+		deletePayload := `{"nodes": ["bulk-node1", "bulk-node2"]}`
+		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(deletePayload))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("DeleteNodesBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("VerifyBulkNodesDeletion", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+		var currentMap MapWithData
+		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if len(currentMap.Nodes) != 3 {
+			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Nodes))
+		}
+	})
+
+	t.Run("DeleteNodesBulkNotExists", func(t *testing.T) {
+		deletePayload := `{"nodes": ["non-existent-bulk"]}`
+		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(deletePayload))
+		rr := httptest.NewRecorder()
+		server.HandleMapOperations(rr, request)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d for bulk deleting non-existent node, got %d", http.StatusNotFound, rr.Code)
+		}
+	})
+
 	t.Run("DeleteAllLinks", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()

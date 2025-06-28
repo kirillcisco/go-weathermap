@@ -203,6 +203,38 @@ You can use this service to manage maps via an RESTful API (request body is limi
     }
     ```
 
+#### Add multiple nodes
+
+*   **POST /maps/{map-name}/nodes/bulk**
+
+    Creates multiple new nodes on the map.
+
+    **Request body (JSON):**
+    ```json
+    [
+      {
+        "name": "switch1",
+        "label": "Access Switch 1",
+        "position": { "x": 200, "y": 200 },
+        "icon": "switch.png"
+      },
+      {
+        "name": "switch2",
+        "label": "Access Switch 2",
+        "position": { "x": 300, "y": 200 },
+        "icon": "switch.png"
+      }
+    ]
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "nodes added",
+      "nodes_count": 2
+    }
+    ```
+
 #### Edit node
 *  **PATCH /maps/{map-name}/nodes/{node-name}**
     
@@ -235,6 +267,27 @@ You can use this service to manage maps via an RESTful API (request body is limi
     {
       "status": "node deleted",
       "name": "{node-name}"
+    }
+    ```
+
+#### Remove multiple nodes
+
+*   **DELETE /maps/{map-name}/nodes/bulk**
+
+    This will delete the nodes and any links they have from the map.
+
+    **Request body (JSON):**
+    ```json
+    {
+      "nodes": ["switch1", "switch2"]
+    }
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "nodes deleted",
+      "deleted_count": 2
     }
     ```
 
