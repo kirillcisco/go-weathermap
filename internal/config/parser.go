@@ -33,7 +33,7 @@ func (p *Parser) ParseYAML(r io.Reader) (*Map, error) {
 
 func (p *Parser) validate(m *Map) error {
 	if m.Width <= 0 || m.Height <= 0 {
-		return fmt.Errorf("width and height must be positive")
+		return fmt.Errorf("width and height of map %s must be positive", m.Title)
 	}
 
 	nodeMap := make(map[string]bool)

@@ -69,7 +69,6 @@ type Node struct {
 	Label      string   `yaml:"label,omitempty"`
 	Position   Position `yaml:"position,flow"`
 	Icon       string   `yaml:"icon,omitempty"`
-	InfoURL    string   `yaml:"info_url,omitempty"`
 	Monitoring bool     `yaml:"monitoring"`
 	MaxValue   int      `yaml:"max_value,omitempty"`
 }

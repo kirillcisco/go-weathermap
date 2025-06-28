@@ -18,30 +18,39 @@ import (
 )
 
 func main() {
-	configDir := "configs"
+	configDir := "maps"
 	if len(os.Args) > 1 {
 		configDir = os.Args[1]
 	}
 
 	server := NewServer(configDir)
 
-	http.HandleFunc("/maps", server.HandleMaps)
-	http.HandleFunc("/maps/", server.HandleMapOperations)
-	http.HandleFunc("/health", server.Health)
+	mux := http.NewServeMux()
+	mux.Handle("/maps", limitRequestBody(http.HandlerFunc(server.HandleMaps)))
+	mux.Handle("/maps/", limitRequestBody(http.HandlerFunc(server.HandleMapOperations)))
+	mux.Handle("/health", limitRequestBody(http.HandlerFunc(server.Health)))
 
 	fmt.Println("Starting weathermap server on :8080")
 	fmt.Println("API endpoints:")
-	fmt.Println("  GET    /maps              					- list maps")
-	fmt.Println("  POST   /maps              					- create map")
-	fmt.Println("  GET    /maps/map-name     					- get map with data")
-	fmt.Println("  PUT    /maps/map-name						- update map")
-	fmt.Println("  DELETE /maps/map-name      					- delete map")
-	fmt.Println("  POST   /maps/map-name/nodes 					- add node")
-	fmt.Println("  DELETE /maps/map-name/nodes/node-name		- delete node")
-	fmt.Println("  POST   /maps/map-name/links					- add link")
-	fmt.Println("  DELETE /maps/map-name/links/link-name		- delete link")
+	fmt.Println("  GET    /maps              						- list maps")
+	fmt.Println("  POST   /maps              						- create map")
+	fmt.Println("  GET    /maps/{map-name}     						- get map with data")
+	fmt.Println("  PUT    /maps/{map-name}							- update map")
+	fmt.Println("  DELETE /maps/{map-name}      					- delete map")
+	fmt.Println("  POST   /maps/{map-name}/nodes 					- add node")
+	fmt.Println("  DELETE /maps/{map-name}/nodes/{node-name}		- delete node")
+	fmt.Println("  PATCH  /maps/{map-name}/nodes/{node-name}		- edit node")
+	fmt.Println("  POST   /maps/{map-name}/links					- add link")
+	fmt.Println("  DELETE /maps/{map-name}/links/{link-name}		- delete link")
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", mux))
+}
+
+func limitRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1048576)
+		next.ServeHTTP(w, r)
+	})
 }
 
 type Server struct {
@@ -68,8 +77,6 @@ func NewServer(configDir string) *Server {
 	}
 }
 
-// CRUD API OPS
-
 func (s *Server) HandleMaps(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -79,24 +86,6 @@ func (s *Server) HandleMaps(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-}
-
-func (s *Server) ListMaps(w http.ResponseWriter, r *http.Request) {
-	files, err := filepath.Glob(filepath.Join(s.configDir, "*.yaml"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var maps []string
-	for _, file := range files {
-		name := filepath.Base(file)
-		name = name[:len(name)-5] // убираем .yaml
-		maps = append(maps, name)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]string{"maps": maps})
 }
 
 func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +101,7 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 
 	switch len(parts) {
 	case 1:
-		// /maps/map-name
+		// /maps/{map-name}
 		switch r.Method {
 		case "GET":
 			s.getMap(w, r, mapName)
@@ -124,7 +113,7 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	case 2:
-		// /maps/map-name/nodes or /maps/map-name/links
+		// /maps/{map-name}/nodes or /maps/{map-name}/links
 		switch parts[1] {
 		case "nodes":
 			if r.Method == "POST" {
@@ -142,12 +131,14 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unknown endpoint", http.StatusNotFound)
 		}
 	case 3:
-		// /maps/map-name/nodes/node-name or /maps/map-name/links/link-name
+		// /maps/{map-name}/nodes/{node-name} or /maps/{map-name}/links/{link-name}
 		itemName := parts[2]
 		switch parts[1] {
 		case "nodes":
 			if r.Method == "DELETE" {
 				s.deleteNode(w, r, mapName, itemName)
+			} else if r.Method == "PATCH" {
+				s.editNode(w, r, mapName, itemName)
 			} else {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -172,10 +163,10 @@ func (s *Server) listMaps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var maps []string
+	maps := make([]string, 0, len(files))
 	for _, file := range files {
 		name := filepath.Base(file)
-		name = name[:len(name)-5]
+		name = strings.TrimSuffix(name, ".yaml")
 		maps = append(maps, name)
 	}
 
@@ -191,8 +182,13 @@ func (s *Server) createMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if newMap.Width <= 0 || newMap.Height <= 0 {
+		http.Error(w, "Width and Height of map must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
 	if newMap.Title == "" {
-		http.Error(w, "Title is required", http.StatusBadRequest)
+		http.Error(w, "Title for map is required", http.StatusBadRequest)
 		return
 	}
 
@@ -205,12 +201,12 @@ func (s *Server) createMap(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "created",
+		"status": "map created",
 		"name":   mapName,
 	})
 }
 
-// GET /maps/map-name
+// GET /maps/{map-name}
 func (s *Server) getMap(w http.ResponseWriter, r *http.Request, mapName string) {
 	mapConfig, err := s.loadMapConfig(mapName)
 	if err != nil {
@@ -224,11 +220,16 @@ func (s *Server) getMap(w http.ResponseWriter, r *http.Request, mapName string) 
 	json.NewEncoder(w).Encode(mapWithData)
 }
 
-// PUT /maps/map-name
+// PUT /maps/{map-name}
 func (s *Server) updateMap(w http.ResponseWriter, r *http.Request, mapName string) {
 	var updatedMap config.Map
 	if err := json.NewDecoder(r.Body).Decode(&updatedMap); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if updatedMap.Width <= 0 || updatedMap.Height <= 0 {
+		http.Error(w, "Width and Height of map must be greater than 0", http.StatusBadRequest)
 		return
 	}
 
@@ -238,10 +239,13 @@ func (s *Server) updateMap(w http.ResponseWriter, r *http.Request, mapName strin
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "map updated",
+		"name":   updatedMap.Title,
+	})
 }
 
-// DELETE /maps/map-name
+// DELETE /maps/{map-name}
 func (s *Server) deleteMap(w http.ResponseWriter, r *http.Request, mapName string) {
 	configPath := filepath.Join(s.configDir, mapName+".yaml")
 
@@ -251,10 +255,13 @@ func (s *Server) deleteMap(w http.ResponseWriter, r *http.Request, mapName strin
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "map deleted",
+		"name":   mapName,
+	})
 }
 
-// POST /maps/map-name/nodes
+// POST /maps/{map-name}/nodes
 func (s *Server) addNode(w http.ResponseWriter, r *http.Request, mapName string) {
 	var newNode config.Node
 	if err := json.NewDecoder(r.Body).Decode(&newNode); err != nil {
@@ -280,6 +287,11 @@ func (s *Server) addNode(w http.ResponseWriter, r *http.Request, mapName string)
 		}
 	}
 
+	if newNode.Position.X > mapConfig.Width || newNode.Position.Y > mapConfig.Height {
+		http.Error(w, "Node position is out of map bounds", http.StatusBadRequest)
+		return
+	}
+
 	mapConfig.Nodes = append(mapConfig.Nodes, newNode)
 
 	if err := s.saveMap(mapName, mapConfig); err != nil {
@@ -288,10 +300,73 @@ func (s *Server) addNode(w http.ResponseWriter, r *http.Request, mapName string)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "node added"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "node added",
+		"name":   newNode.Name,
+	})
 }
 
-// DELETE /maps/map-name/nodes/node-name
+// PATCH /maps/{map-name}/nodes/{node-name}
+func (s *Server) editNode(w http.ResponseWriter, r *http.Request, mapName string, nodeName string) {
+	var req struct {
+		Label    *string          `json:"label"`
+		Position *config.Position `json:"position"`
+		Icon     *string          `json:"icon"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	nodeFound := false
+	var nameOfFoundNode string
+	for i := range mapConfig.Nodes {
+		if mapConfig.Nodes[i].Name == nodeName {
+			nodeFound = true
+			nameOfFoundNode = mapConfig.Nodes[i].Name
+
+			if req.Label != nil {
+				mapConfig.Nodes[i].Label = *req.Label
+			}
+			if req.Position != nil {
+				if req.Position.X > mapConfig.Width || req.Position.Y > mapConfig.Height {
+					http.Error(w, "Node position is out of map bounds", http.StatusBadRequest)
+					return
+				}
+				mapConfig.Nodes[i].Position = *req.Position
+			}
+			if req.Icon != nil {
+				mapConfig.Nodes[i].Icon = *req.Icon
+			}
+			break
+		}
+	}
+
+	if !nodeFound {
+		http.Error(w, "Node not found", http.StatusNotFound)
+		return
+	}
+
+	if err := s.saveMap(mapName, mapConfig); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "node updated",
+		"name":   nameOfFoundNode,
+	})
+}
+
+// DELETE /maps/{map-name}/nodes/{node-name}
 func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request, mapName, nodeName string) {
 	mapConfig, err := s.loadMapConfig(mapName)
 	if err != nil {
@@ -331,10 +406,13 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request, mapName, nod
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "node deleted"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "node deleted",
+		"name":   nodeName,
+	})
 }
 
-// POST /maps/map-name/links
+// POST /maps/{map-name}/links
 func (s *Server) addLink(w http.ResponseWriter, r *http.Request, mapName string) {
 	var newLink config.Link
 	if err := json.NewDecoder(r.Body).Decode(&newLink); err != nil {
@@ -387,10 +465,13 @@ func (s *Server) addLink(w http.ResponseWriter, r *http.Request, mapName string)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "link added"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "link added",
+		"name":   newLink.Name,
+	})
 }
 
-// DELETE /maps/map-name/links/link-name
+// DELETE /maps/{map-name}/links/{link-name}
 func (s *Server) deleteLink(w http.ResponseWriter, r *http.Request, mapName, linkName string) {
 	mapConfig, err := s.loadMapConfig(mapName)
 	if err != nil {
@@ -421,7 +502,10 @@ func (s *Server) deleteLink(w http.ResponseWriter, r *http.Request, mapName, lin
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "link deleted"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "link deleted",
+		"name":   linkName,
+	})
 }
 
 func (s *Server) HandleMapRequest(w http.ResponseWriter, r *http.Request) {
