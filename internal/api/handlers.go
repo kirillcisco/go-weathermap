@@ -22,7 +22,7 @@ func (s *Server) HandleMaps(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		// /maps/{mapName}
+		// /maps/{mapName}?include=width,height,title,nodes
 		s.GetMap(w, r)
 	case "PATCH":
 		// /maps/{mapName} for map edits
@@ -111,7 +111,34 @@ func (s *Server) GetMap(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	respondWithJSON(w, http.StatusOK, mapWithData)
+
+	include := r.URL.Query().Get("include")
+	if include == "" {
+		respondWithJSON(w, http.StatusOK, mapWithData)
+		return
+	}
+
+	fields := strings.Split(include, ",")
+	filteredData := make(map[string]any)
+
+	for _, field := range fields {
+		switch field {
+		case "width":
+			filteredData["width"] = mapWithData.Width
+		case "height":
+			filteredData["height"] = mapWithData.Height
+		case "title":
+			filteredData["title"] = mapWithData.Title
+		case "nodes":
+			filteredData["nodes"] = mapWithData.Nodes
+		case "links":
+			filteredData["links"] = mapWithData.Links
+		case "bgcolor":
+			filteredData["bgcolor"] = mapWithData.BGColor
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, filteredData)
 }
 
 func (s *Server) AddNode(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +189,7 @@ func (s *Server) EditMap(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/maps/"), "/")
 	mapName := parts[0]
 
-	var mapUpdates map[string]interface{}
+	var mapUpdates map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&mapUpdates); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON for map edit")
 		return
@@ -179,7 +206,7 @@ func (s *Server) EditNode(w http.ResponseWriter, r *http.Request) {
 	mapName := parts[0]
 	nodeName := parts[2]
 
-	var nodeUpdates map[string]interface{}
+	var nodeUpdates map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&nodeUpdates); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON for node edit")
 		return

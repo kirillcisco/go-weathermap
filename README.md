@@ -79,6 +79,10 @@ You can use this service to manage maps via an RESTful API (request body is limi
 
     You can get information about a specific map by using the `/maps/{map_name}` endpoint. This will return the full configuration of the map, including traffic data. (At this moment data is mock).
 
+    You can also use the `include` query parameter to filter the data you want to receive. This is useful for reducing the amount of info, especially for large maps.
+
+    `GET /maps/{map-name}?include=width,height,title,nodes`: Only include the specified fields in the response.
+
     **Example response:**
     ```json
     {

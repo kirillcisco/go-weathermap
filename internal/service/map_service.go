@@ -163,7 +163,7 @@ func (s *MapService) DeleteNode(mapName, nodeName string) error {
 	return s.saveMap(mapName, mapConfig)
 }
 
-func (s *MapService) EditMap(mapName string, updates map[string]interface{}) error {
+func (s *MapService) EditMap(mapName string, updates map[string]any) error {
 	mapConfig, err := s.loadMapConfig(mapName)
 	if err != nil {
 		return err
@@ -180,7 +180,7 @@ func (s *MapService) EditMap(mapName string, updates map[string]interface{}) err
 	return s.saveMap(mapName, mapConfig)
 }
 
-func (s *MapService) EditNode(mapName, nodeName string, updates map[string]interface{}) error {
+func (s *MapService) EditNode(mapName, nodeName string, updates map[string]any) error {
 	mapConfig, err := s.loadMapConfig(mapName)
 	if err != nil {
 		return err
@@ -192,7 +192,7 @@ func (s *MapService) EditNode(mapName, nodeName string, updates map[string]inter
 			if label, ok := updates["label"].(string); ok {
 				mapConfig.Nodes[i].Label = label
 			}
-			if pos, ok := updates["position"].(map[string]interface{}); ok {
+			if pos, ok := updates["position"].(map[string]any); ok {
 				if x, ok := pos["x"].(float64); ok {
 					mapConfig.Nodes[i].Position.X = int(x)
 				}
@@ -312,7 +312,11 @@ func (s *MapService) loadMapConfig(mapName string) (*config.Map, error) {
 	if err != nil {
 		return nil, fmt.Errorf("map not found: %s", mapName)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Failed to close file %s: %v\n", configPath, err)
+		}
+	}()
 
 	return s.parser.ParseYAML(file)
 }

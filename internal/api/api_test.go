@@ -42,7 +42,11 @@ func TestAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove temp dir %s: %v", tempDir, err)
+		}
+	}()
 
 	server := NewServer(tempDir)
 	mapName := "full-mesh-test"
@@ -97,7 +101,7 @@ func TestAPI(t *testing.T) {
 	})
 
 	t.Run("AddLinksFullMesh", func(t *testing.T) {
-		for i := 0; i < len(nodes); i++ {
+		for i := range nodes {
 			for j := i + 1; j < len(nodes); j++ {
 				linkName := fmt.Sprintf("link-%s-%s", nodes[i], nodes[j])
 				linkConfig := fmt.Sprintf(`{"name": "%s", "from": "%s", "to": "%s", "bandwidth": "100M"}`, linkName, nodes[i], nodes[j])
@@ -122,7 +126,7 @@ func TestAPI(t *testing.T) {
 	})
 
 	var createdMap config.MapWithData
-	t.Run("VerifyMapCreation", func(t *testing.T) {
+	t.Run("VerifyFullMapCreation", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
@@ -141,8 +145,39 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("VerifyMapFiltering", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName+"?include=title,width,nodes", nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GetMap with include failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+
+		var filteredMap map[string]any
+		if err := json.NewDecoder(rr.Body).Decode(&filteredMap); err != nil {
+			t.Fatalf("Failed to decode filtered map response: %v", err)
+		}
+
+		if title, ok := filteredMap["title"]; !ok || title != mapName {
+			t.Errorf("Expected 'title' to be '%s', got '%v'", mapName, title)
+		}
+
+		if width, ok := filteredMap["width"]; !ok || width.(float64) != 500 { // float64 from JSON
+			t.Errorf("Expected 'width' to be 500, got '%v'", width)
+		}
+
+		if _, ok := filteredMap["nodes"]; !ok {
+			t.Error("Expected 'nodes' field in filtered response")
+		}
+
+		if _, ok := filteredMap["height"]; ok {
+			t.Error("Unexpected 'height' field in filtered response")
+		}
+	})
+
 	t.Run("EditMap", func(t *testing.T) {
-		editMapPayload := map[string]interface{}{
+		editMapPayload := map[string]any{
 			"title":  "Updated Title",
 			"width":  1024,
 			"height": 1024,
@@ -183,7 +218,7 @@ func TestAPI(t *testing.T) {
 	nodeToTest := "node4"
 	t.Run("EditNodeThanDeleteNode", func(t *testing.T) {
 		// Edit Node
-		editNodePayload := map[string]interface{}{
+		editNodePayload := map[string]any{
 			"label":    "Updated Label for node4",
 			"position": config.Position{X: 450, Y: 450},
 		}
@@ -214,7 +249,9 @@ func TestAPI(t *testing.T) {
 			t.Fatalf("GetMap failed: status %d, body: %s", rr.Code, rr.Body.String())
 		}
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 		if len(currentMap.Nodes) != 3 {
 			t.Errorf("Expected 3 nodes after deletion, got %d", len(currentMap.Nodes))
 		}
@@ -256,7 +293,9 @@ func TestAPI(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 		if len(currentMap.Nodes) != 5 {
 			t.Errorf("Expected 5 nodes after bulk addition, got %d", len(currentMap.Nodes))
 		}
@@ -300,7 +339,9 @@ func TestAPI(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 		if len(currentMap.Nodes) != 3 {
 			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Nodes))
 		}
@@ -321,7 +362,9 @@ func TestAPI(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 
 		for _, link := range currentMap.Links {
 			deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/links/%s", mapName, link.Name), nil)
@@ -338,7 +381,9 @@ func TestAPI(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 		if len(currentMap.Links) != 0 {
 			t.Errorf("Expected 0 links after deletion, got %d", len(currentMap.Links))
 		}
@@ -361,7 +406,9 @@ func TestAPI(t *testing.T) {
 		rr := httptest.NewRecorder()
 		server.ServeHTTP(rr, request)
 		var currentMap config.MapWithData
-		json.NewDecoder(rr.Body).Decode(&currentMap)
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
 		if len(currentMap.Nodes) != 0 {
 			t.Errorf("Expected 0 nodes after deletion, got %d", len(currentMap.Nodes))
 		}
