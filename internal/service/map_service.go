@@ -306,6 +306,57 @@ func (s *MapService) DeleteNodesBulk(mapName string, nodeNames []string) error {
 	return s.saveMap(mapName, mapConfig)
 }
 
+func (s *MapService) AddLinksBulk(mapName string, newLinks []config.Link) error {
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		return err
+	}
+
+	existingLinks := make(map[string]bool)
+	for _, link := range mapConfig.Links {
+		existingLinks[link.Name] = true
+	}
+
+	for _, newLink := range newLinks {
+		if existingLinks[newLink.Name] {
+			return fmt.Errorf("link with name '%s' already exists", newLink.Name)
+		}
+		existingLinks[newLink.Name] = true
+	}
+
+	mapConfig.Links = append(mapConfig.Links, newLinks...)
+	return s.saveMap(mapName, mapConfig)
+}
+
+func (s *MapService) DeleteLinksBulk(mapName string, linkNames []string) error {
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		return err
+	}
+
+	linksToDelete := make(map[string]bool)
+	for _, name := range linkNames {
+		linksToDelete[name] = true
+	}
+
+	linkFound := false
+	newLinks := make([]config.Link, 0, len(mapConfig.Links))
+	for _, link := range mapConfig.Links {
+		if !linksToDelete[link.Name] {
+			newLinks = append(newLinks, link)
+		} else {
+			linkFound = true
+		}
+	}
+
+	if !linkFound {
+		return fmt.Errorf("links not found")
+	}
+
+	mapConfig.Links = newLinks
+	return s.saveMap(mapName, mapConfig)
+}
+
 func (s *MapService) loadMapConfig(mapName string) (*config.Map, error) {
 	configPath := filepath.Join(s.configDir, mapName+".yaml")
 	file, err := os.Open(configPath)
@@ -331,4 +382,27 @@ func (s *MapService) saveMap(mapName string, mapConfig *config.Map) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 	return os.WriteFile(configPath, data, 0644)
+}
+
+func (s *MapService) GetMapVariables(mapName string) (map[string]string, error) {
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		return nil, err
+	}
+
+	if mapConfig.Variables == nil {
+		return make(map[string]string), nil
+	}
+
+	return mapConfig.Variables, nil
+}
+
+func (s *MapService) UpdateMapVariables(mapName string, variables map[string]string) error {
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		return err
+	}
+
+	mapConfig.Variables = variables
+	return s.saveMap(mapName, mapConfig)
 }

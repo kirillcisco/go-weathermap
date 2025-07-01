@@ -77,12 +77,14 @@ You can use this service to manage maps via an RESTful API (request body is limi
 
 *   **GET /maps/{map-name}**
 
-    You can get information about a specific map by using the `/maps/{map_name}` endpoint. This will return the full configuration of the map, including traffic data. (At this moment data is mock).
+    This will return the full configuration of the map, including traffic data. (At this moment data is mock).
 
-    You can also use the `include` query parameter to filter the data you want to receive. This is useful for reducing the amount of info, especially for large maps.
+    **Query parameters:** 
+    * `include` (string, optional): separated list of fields to include in the response (e.g., `width,height,title,nodes`). 
 
-    `GET /maps/{map-name}?include=width,height,title,nodes`: Only include the specified fields in the response.
-
+    **Example:**  
+    `GET /maps/{map-name}?include=width,title`  
+    
     **Example response:**
     ```json
     {
@@ -181,7 +183,75 @@ You can use this service to manage maps via an RESTful API (request body is limi
     }
     ```
 
+### Map Variables
+
+#### Get map variables
+*   **GET /maps/{map-name}/variables**
+
+    Retrieve the global variables for a specific map.
+
+    **Example response:**
+    ```json
+    {
+      "zabbix_url": "http://zabbix.example.com",
+      "zabbix_user": "admin",
+      "zabbix_password": "secret"
+    }
+    ```
+
+#### Update map variables
+*   **PATCH /maps/{map-name}/variables**
+
+    Update the global variables for a specific map. The request body should be a JSON object with key-value pairs.
+
+    **Request body (JSON):**
+    ```json
+    {
+      "zabbix_url": "http://zabbix.example.com",
+      "zabbix_user": "admin",
+      "zabbix_password": "secret"
+    }
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "variables updated"
+    }
+    ```
+
 ### Nodes
+
+#### List all nodes for a specific map
+*   **GET /maps/{map-name}/nodes**
+
+    Retrieve all nodes associated with a specified map, optionally filtered by name.
+
+    **Query parameters:** 
+    * `search` (string, optional): Filters nodes whose names partially match the provided value.
+        
+    **Example:**  
+    `GET /maps/{map-name}/nodes?search=core-router`
+
+    **Example response (JSON array):**
+    ```json
+    [
+      {
+        "name": "core-router1",
+        "label": "Core Router 1",
+        "position": { "x": 100, "y": 100 },
+        "icon": "router.png",
+        "monitoring": true
+      },
+      {
+        "name": "core-router2",
+        "label": "Core Router 2",
+        "position": { "x": 300, "y": 100 },
+        "icon": "router.png",
+        "monitoring": true
+      }
+    ]
+    ```
 
 #### Add node
 
@@ -297,6 +367,30 @@ You can use this service to manage maps via an RESTful API (request body is limi
 
 ### Links
 
+#### List all links for a specific map
+*   **GET /maps/{map-name}/links**
+
+    Get all links associated with a specified map, optionally filtered by operational status or by node.
+
+    **Query parameters:**
+    * `status` (string, optional): Filters links by their operational status ("up", "down", "unknown").
+    * `node` (string, optional): Filters links that are connected to specified node.
+
+    **Example:**  
+    `GET /maps/{map-name}/links?status=down`  
+    `GET /maps/{map-name}/links?node=core-router1`
+
+    **Example (combined filter):**  
+    `GET /maps/example-map/links?node=router1&status=up`
+
+    **Example response (JSON array):**
+    ```json
+    [
+      {"name":"core-link","utilization":97,"status":"up"},
+      {"name":"router1-switch1","utilization":36.4,"status":"up"}
+    ]
+    ```
+
 #### Add link
 
 *   **POST /maps/{map-name}/links**
@@ -321,15 +415,70 @@ You can use this service to manage maps via an RESTful API (request body is limi
     }
     ```
 
+#### Add multiple links
+
+*   **POST /maps/{map-name}/links/bulk**
+
+    Creates multiple new links on the map.
+
+    **Request body (JSON):**
+    ```json
+    [
+      {
+        "name": "link1",
+        "from": "router1",
+        "to": "switch1",
+        "bandwidth": "10G"
+      },
+      {
+        "name": "link2",
+        "from": "switch1",
+        "to": "router2",
+        "bandwidth": "1G"
+      }
+    ]
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "links added in bulk",
+      "links_count": 2
+    }
+    ```
+
 #### Remove link
 
 *   **DELETE /maps/{map-name}/links/{link-name}**
 
     Remove link from map.
 
-    **Example respone:**
+    **Example response:**
     ```json
     {
       "status": "link deleted",
       "name": "{link-name}"
     }
+    ```
+
+#### Remove multiple links
+
+*   **DELETE /maps/{map-name}/links/bulk**
+
+    This will delete the links from the map.
+
+    **Request body (JSON array):**
+    ```json
+    [
+      "link1",
+      "link2"
+    ]
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "links deleted in bulk",
+      "deleted_count": 2
+    }
+    ```

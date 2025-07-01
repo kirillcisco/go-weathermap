@@ -26,13 +26,13 @@ func TestHealth(t *testing.T) {
 	handler.ServeHTTP(rr, request)
 
 	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v",
+		t.Errorf("Handler returned wrong status code: got %v want %v",
 			status, http.StatusOK)
 	}
 
 	expected := `{"status":"ok"}`
 	if strings.TrimSpace(rr.Body.String()) != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v",
+		t.Errorf("Handler returned unexpected body: got %v want %v",
 			rr.Body.String(), expected)
 	}
 }
@@ -145,6 +145,79 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("ListMapNodes", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName+"/nodes", nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("ListMapNodes failed: status %d", rr.Code)
+		}
+		var gotNodes []config.Node
+		if err := json.NewDecoder(rr.Body).Decode(&gotNodes); err != nil {
+			t.Fatalf("Failed to decode nodes: %v", err)
+		}
+		if len(gotNodes) != len(nodes) {
+			t.Errorf("Expected %d nodes, got %d", len(nodes), len(gotNodes))
+		}
+
+		// Check filters
+		searchRequest := httptest.NewRequest("GET", "/maps/"+mapName+"/nodes?search="+nodes[0], nil)
+		searchRR := httptest.NewRecorder()
+		server.ServeHTTP(searchRR, searchRequest)
+		if searchRR.Code != http.StatusOK {
+			t.Fatalf("ListMapNodes with search failed: status %d", searchRR.Code)
+		}
+		var filteredNodes []config.Node
+		if err := json.NewDecoder(searchRR.Body).Decode(&filteredNodes); err != nil {
+			t.Fatalf("Failed to decode filtered nodes: %v", err)
+		}
+		if len(filteredNodes) != 1 || filteredNodes[0].Name != nodes[0] {
+			t.Errorf("Expected 1 node named '%s', got %+v", nodes[0], filteredNodes)
+		}
+	})
+
+	t.Run("ListMapLinks", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName+"/links", nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("ListMapLinks failed: status %d", rr.Code)
+		}
+		var gotLinks []config.LinkData
+		if err := json.NewDecoder(rr.Body).Decode(&gotLinks); err != nil {
+			t.Fatalf("Failed to decode links: %v", err)
+		}
+		if len(gotLinks) != (len(nodes)*(len(nodes)-1))/2 {
+			t.Errorf("Expected %d links, got %d", (len(nodes)*(len(nodes)-1))/2, len(gotLinks))
+		}
+
+		searchRequest := httptest.NewRequest("GET", "/maps/"+mapName+"/links?status=up", nil)
+		statusRR := httptest.NewRecorder()
+		server.ServeHTTP(statusRR, searchRequest)
+		if statusRR.Code != http.StatusOK {
+			t.Fatalf("ListMapLinks with status failed: status %d", statusRR.Code)
+		}
+		var filteredLinks []config.LinkData
+		if err := json.NewDecoder(statusRR.Body).Decode(&filteredLinks); err != nil {
+			t.Fatalf("Failed to decode filtered links: %v", err)
+		}
+
+		nodeName := nodes[0]
+		nodeRequest := httptest.NewRequest("GET", "/maps/"+mapName+"/links?node="+nodeName, nil)
+		nodeRR := httptest.NewRecorder()
+		server.ServeHTTP(nodeRR, nodeRequest)
+		if nodeRR.Code != http.StatusOK {
+			t.Fatalf("ListMapLinks with node filter failed: status %d", nodeRR.Code)
+		}
+		var nodeLinks []config.LinkData
+		if err := json.NewDecoder(nodeRR.Body).Decode(&nodeLinks); err != nil {
+			t.Fatalf("Failed to decode node-filtered links: %v", err)
+		}
+		if len(nodeLinks) != len(nodes)-1 {
+			t.Errorf("Expected %d links for node %s, got %d", len(nodes)-1, nodeName, len(nodeLinks))
+		}
+	})
+
 	t.Run("VerifyMapFiltering", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName+"?include=title,width,nodes", nil)
 		rr := httptest.NewRecorder()
@@ -212,6 +285,100 @@ func TestAPI(t *testing.T) {
 		}
 		if updatedMap.Height != 1024 {
 			t.Errorf("Expected height is 1024, got %d", updatedMap.Height)
+		}
+	})
+
+	t.Run("GetMapVariables", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName+"/variables", nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GetMapVariables failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+
+		var variables map[string]string
+		if err := json.NewDecoder(rr.Body).Decode(&variables); err != nil {
+			t.Fatalf("Failed to decode variables: %v", err)
+		}
+		if variables == nil {
+			t.Error("Expected variables map, got nil")
+		}
+	})
+
+	t.Run("UpdateMapVariables", func(t *testing.T) {
+		variables := map[string]string{
+			"zabbix_url":      "http://zabbix.example.com",
+			"zabbix_user":     "admin",
+			"zabbix_password": "secret",
+		}
+
+		data, err := json.Marshal(variables)
+		if err != nil {
+			t.Fatalf("Failed to marshal variables: %v", err)
+		}
+
+		request := httptest.NewRequest("PATCH", "/maps/"+mapName+"/variables", bytes.NewBuffer(data))
+		request.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("UpdateMapVariables failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		if response["status"] != "variables updated" {
+			t.Errorf("Expected status 'variables updated', got '%s'", response["status"])
+		}
+
+		getRequest := httptest.NewRequest("GET", "/maps/"+mapName+"/variables", nil)
+		getRR := httptest.NewRecorder()
+		server.ServeHTTP(getRR, getRequest)
+
+		if getRR.Code != http.StatusOK {
+			t.Fatalf("GetMapVariables after update failed: status %d", getRR.Code)
+		}
+
+		var updatedVariables map[string]string
+		if err := json.NewDecoder(getRR.Body).Decode(&updatedVariables); err != nil {
+			t.Fatalf("Failed to decode updated variables: %v", err)
+		}
+
+		for key, value := range variables {
+			if updatedVariables[key] != value {
+				t.Errorf("Variable %s: expected '%s', got '%s'", key, value, updatedVariables[key])
+			}
+		}
+	})
+
+	t.Run("GetMapVariablesNotFound", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/non-existent/variables", nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d for non-existent map variables, got %d", http.StatusNotFound, rr.Code)
+		}
+	})
+
+	t.Run("UpdateMapVariablesNotFound", func(t *testing.T) {
+		variables := map[string]string{"test": "value"}
+		data, err := json.Marshal(variables)
+		if err != nil {
+			t.Fatalf("Failed to marshal variables: %v", err)
+		}
+
+		request := httptest.NewRequest("PATCH", "/maps/non-existent/variables", bytes.NewBuffer(data))
+		request.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d for updating non-existent map variables, got %d", http.StatusNotFound, rr.Code)
 		}
 	})
 
@@ -373,6 +540,86 @@ func TestAPI(t *testing.T) {
 			if deleteRR.Code != http.StatusOK {
 				t.Fatalf("DeleteLink %s failed: status %d, body: %s", link.Name, deleteRR.Code, deleteRR.Body.String())
 			}
+		}
+	})
+
+	t.Run("AddLinksBulk", func(t *testing.T) {
+		linksPayload := `[
+		   {"name": "bulk-link1", "from": "node1", "to": "node2", "bandwidth": "100M"},
+		   {"name": "bulk-link2", "from": "node2", "to": "node3", "bandwidth": "1G"}
+		 ]`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(linksPayload))
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("AddLinksBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("VerifyBulkLinksAddition", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
+		found := 0
+		for _, link := range currentMap.Links {
+			if link.Name == "bulk-link1" || link.Name == "bulk-link2" {
+				found++
+			}
+		}
+		if found != 2 {
+			t.Errorf("Expected 2 bulk links after addition, got %d", found)
+		}
+	})
+
+	t.Run("AddLinksBulkAlreadyExists", func(t *testing.T) {
+		linksPayload := `[{"name": "bulk-link1", "from": "node1", "to": "node2", "bandwidth": "100M"}]`
+		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(linksPayload))
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusConflict {
+			t.Errorf("Expected status %d for bulk adding existing link, got %d", http.StatusConflict, rr.Code)
+		}
+	})
+
+	t.Run("DeleteLinksBulk", func(t *testing.T) {
+		deletePayload := `["bulk-link1", "bulk-link2"]`
+		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(deletePayload))
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("DeleteLinksBulk failed: status %d, body: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("VerifyBulkLinksDeletion", func(t *testing.T) {
+		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+		var currentMap config.MapWithData
+		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
+			t.Fatalf("Failed to decode map response: %v", err)
+		}
+		for _, link := range currentMap.Links {
+			if link.Name == "bulk-link1" || link.Name == "bulk-link2" {
+				t.Errorf("Bulk link %s was not deleted", link.Name)
+			}
+		}
+	})
+
+	t.Run("DeleteLinksBulkNotExists", func(t *testing.T) {
+		deletePayload := `["non-existent-bulk-link"]`
+		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(deletePayload))
+		rr := httptest.NewRecorder()
+		server.ServeHTTP(rr, request)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d for bulk deleting non-existent link, got %d", http.StatusNotFound, rr.Code)
 		}
 	})
 

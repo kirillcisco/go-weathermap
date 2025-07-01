@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Map struct {
@@ -113,16 +116,16 @@ type LinkData struct {
 	Status      string  `json:"status"`
 }
 
-// custom marshaler for yaml
-//func (p Position) MarshalYAML() (interface{}, error) {
-//	var node yaml.Node
-//	node.Kind = yaml.MappingNode
-//	node.Style = yaml.FlowStyle
-//	node.Content = []*yaml.Node{
-//		{Kind: yaml.ScalarNode, Value: "x"},
-//		{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", p.X)},
-//		{Kind: yaml.ScalarNode, Value: "y"},
-//		{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", p.Y)},
-//	}
-//	return &node, nil
-//}
+func (p Position) MarshalYAML() (interface{}, error) {
+	node := &yaml.Node{
+		Kind:  yaml.MappingNode,
+		Style: yaml.FlowStyle,
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "x"},
+			{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", p.X)},
+			{Kind: yaml.ScalarNode, Value: "y"},
+			{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d", p.Y)},
+		},
+	}
+	return node, nil
+}

@@ -20,48 +20,155 @@ func (s *Server) HandleMaps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/maps/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		respondWithError(w, http.StatusBadRequest, "Map name is required")
+		return
+	}
+	mapName := parts[0]
+
 	switch r.Method {
 	case "GET":
-		// /maps/{mapName}?include=width,height,title,nodes
+		if len(parts) == 2 && parts[1] == "nodes" {
+			s.ListMapNodes(w, r, mapName)
+			return
+		}
+		if len(parts) == 2 && parts[1] == "links" {
+			s.ListMapLinks(w, r, mapName)
+			return
+		}
+		if len(parts) == 2 && parts[1] == "variables" {
+			s.GetMapVariables(w, r, mapName)
+			return
+		}
 		s.GetMap(w, r)
 	case "PATCH":
-		// /maps/{mapName} for map edits
-		// /maps/{mapName}/nodes/{nodeName} for node edits
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/maps/"), "/")
 		if len(parts) == 3 && parts[1] == "nodes" {
 			s.EditNode(w, r)
-		} else if len(parts) == 1 {
+			return
+		}
+		if len(parts) == 2 && parts[1] == "variables" {
+			s.UpdateMapVariables(w, r, mapName)
+			return
+		}
+		if len(parts) == 1 {
 			s.EditMap(w, r)
-		} else {
-			http.NotFound(w, r)
+			return
 		}
+		http.NotFound(w, r)
 	case "POST":
-		// /maps/{mapName}/nodes, /maps/{mapName}/links, etc.
-		if strings.HasSuffix(r.URL.Path, "/nodes") {
+		if len(parts) == 2 && parts[1] == "nodes" {
 			s.AddNode(w, r)
-		} else if strings.HasSuffix(r.URL.Path, "/links") {
+			return
+		}
+		if len(parts) == 2 && parts[1] == "links" {
 			s.AddLink(w, r)
-		} else if strings.HasSuffix(r.URL.Path, "/nodes/bulk") {
+			return
+		}
+		if len(parts) == 3 && parts[1] == "nodes" && parts[2] == "bulk" {
 			s.AddNodesBulk(w, r)
-		} else {
-			http.NotFound(w, r)
+			return
 		}
+		if len(parts) == 3 && parts[1] == "links" && parts[2] == "bulk" {
+			s.AddLinksBulk(w, r)
+			return
+		}
+		http.NotFound(w, r)
 	case "DELETE":
-		// /maps/{mapName}, /maps/{mapName}/nodes/{nodeName}, etc.
-		if strings.Contains(r.URL.Path, "/nodes/") {
-			if strings.HasSuffix(r.URL.Path, "/bulk") {
-				s.DeleteNodesBulk(w, r)
-			} else {
-				s.DeleteNode(w, r)
-			}
-		} else if strings.Contains(r.URL.Path, "/links/") {
-			s.DeleteLink(w, r)
-		} else {
-			s.DeleteMap(w, r)
+		if len(parts) == 3 && parts[1] == "nodes" && parts[2] == "bulk" {
+			s.DeleteNodesBulk(w, r)
+			return
 		}
+		if len(parts) == 3 && parts[1] == "links" && parts[2] == "bulk" {
+			s.DeleteLinksBulk(w, r)
+			return
+		}
+		if len(parts) == 3 && parts[1] == "nodes" {
+			s.DeleteNode(w, r)
+			return
+		}
+		if len(parts) == 3 && parts[1] == "links" {
+			s.DeleteLink(w, r)
+			return
+		}
+		if len(parts) == 1 {
+			s.DeleteMap(w, r)
+			return
+		}
+		http.NotFound(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) ListMapNodes(w http.ResponseWriter, r *http.Request, mapName string) {
+	if mapName == "" {
+		respondWithError(w, http.StatusBadRequest, "Map name is required")
+		return
+	}
+	mapWithData, err := s.mapService.GetMapWithData(mapName)
+	if err != nil {
+		if strings.Contains(err.Error(), "map not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	searchQuery := r.URL.Query().Get("search")
+	if searchQuery == "" {
+		respondWithJSON(w, http.StatusOK, mapWithData.Nodes)
+		return
+	}
+
+	var filteredNodes []config.Node
+	for _, node := range mapWithData.Nodes {
+		if strings.Contains(strings.ToLower(node.Name), strings.ToLower(searchQuery)) {
+			filteredNodes = append(filteredNodes, node)
+		}
+	}
+	respondWithJSON(w, http.StatusOK, filteredNodes)
+}
+
+func (s *Server) ListMapLinks(w http.ResponseWriter, r *http.Request, mapName string) {
+	if mapName == "" {
+		respondWithError(w, http.StatusBadRequest, "Map name is required")
+		return
+	}
+	mapWithData, err := s.mapService.GetMapWithData(mapName)
+	if err != nil {
+		if strings.Contains(err.Error(), "map not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	statusQuery := r.URL.Query().Get("status")
+	nodeQuery := r.URL.Query().Get("node")
+	if statusQuery == "" && nodeQuery == "" {
+		respondWithJSON(w, http.StatusOK, mapWithData.LinksData)
+		return
+	}
+
+	var filteredLinks []config.LinkData
+	nodeQueryLower := strings.ToLower(nodeQuery)
+	for i, link := range mapWithData.LinksData {
+		match := true
+		if statusQuery != "" && !strings.EqualFold(link.Status, statusQuery) {
+			match = false
+		}
+		if nodeQuery != "" {
+			linkObj := mapWithData.Links[i]
+			if strings.ToLower(linkObj.From) != nodeQueryLower && strings.ToLower(linkObj.To) != nodeQueryLower {
+				match = false
+			}
+		}
+		if match {
+			filteredLinks = append(filteredLinks, link)
+		}
+	}
+	respondWithJSON(w, http.StatusOK, filteredLinks)
 }
 
 func (s *Server) ListMaps(w http.ResponseWriter, r *http.Request) {
@@ -297,4 +404,85 @@ func (s *Server) DeleteNodesBulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "nodes deleted in bulk"})
+}
+
+func (s *Server) GetMapVariables(w http.ResponseWriter, r *http.Request, mapName string) {
+	if mapName == "" {
+		respondWithError(w, http.StatusBadRequest, "Map name is required")
+		return
+	}
+
+	variables, err := s.mapService.GetMapVariables(mapName)
+	if err != nil {
+		if strings.Contains(err.Error(), "map not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, variables)
+}
+
+func (s *Server) UpdateMapVariables(w http.ResponseWriter, r *http.Request, mapName string) {
+	if mapName == "" {
+		respondWithError(w, http.StatusBadRequest, "Map name is required")
+		return
+	}
+
+	var variables map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&variables); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	if err := s.mapService.UpdateMapVariables(mapName, variables); err != nil {
+		if strings.Contains(err.Error(), "map not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "variables updated"})
+}
+
+func (s *Server) AddLinksBulk(w http.ResponseWriter, r *http.Request) {
+	mapName := strings.Split(r.URL.Path, "/")[2]
+	var links []config.Link
+	if err := json.NewDecoder(r.Body).Decode(&links); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+	if err := s.mapService.AddLinksBulk(mapName, links); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			respondWithError(w, http.StatusConflict, err.Error())
+		} else if strings.Contains(err.Error(), "validation failed") {
+			respondWithError(w, http.StatusBadRequest, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]any{"status": "links added in bulk", "links_count": len(links)})
+}
+
+func (s *Server) DeleteLinksBulk(w http.ResponseWriter, r *http.Request) {
+	mapName := strings.Split(r.URL.Path, "/")[2]
+	var linkNames []string
+	if err := json.NewDecoder(r.Body).Decode(&linkNames); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+	if err := s.mapService.DeleteLinksBulk(mapName, linkNames); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]any{"status": "links deleted in bulk", "deleted_count": len(linkNames)})
 }
