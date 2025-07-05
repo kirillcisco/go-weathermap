@@ -137,11 +137,11 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&createdMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(createdMap.Nodes) != 4 {
-			t.Errorf("Expected 4 nodes, got %d", len(createdMap.Nodes))
+		if len(createdMap.Map.Nodes) != 4 {
+			t.Errorf("Expected 4 nodes, got %d", len(createdMap.Map.Nodes))
 		}
-		if len(createdMap.Links) != 6 {
-			t.Errorf("Expected 6 links for full mesh, got %d", len(createdMap.Links))
+		if len(createdMap.Map.Links) != 6 {
+			t.Errorf("Expected 6 links for full mesh, got %d", len(createdMap.Map.Links))
 		}
 	})
 
@@ -408,6 +408,148 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("EditLink", func(t *testing.T) {
+		editLinkPayload := map[string]any{
+			"bandwidth": "10G",
+		}
+		editLinkBody, _ := json.Marshal(editLinkPayload)
+
+		linkToEdit := "link-node1-node2"
+		editLinkRequest := httptest.NewRequest("PATCH", fmt.Sprintf("/maps/%s/links/%s", mapName, linkToEdit), bytes.NewBuffer(editLinkBody))
+		editRR := httptest.NewRecorder()
+		server.ServeHTTP(editRR, editLinkRequest)
+
+		if editRR.Code != http.StatusOK {
+			t.Fatalf("EditLink failed: status %d, body: %s", editRR.Code, editRR.Body.String())
+		}
+
+		var editResponse map[string]string
+		if err := json.NewDecoder(editRR.Body).Decode(&editResponse); err != nil {
+			t.Fatalf("Failed to decode edit response: %v", err)
+		}
+		if editResponse["status"] != "link updated" {
+			t.Errorf("Expected status 'link updated', got '%s'", editResponse["status"])
+		}
+		if editResponse["name"] != linkToEdit {
+			t.Errorf("Expected name '%s', got '%s'", linkToEdit, editResponse["name"])
+		}
+
+		editLinkViaPayload := map[string]any{
+			"via": []map[string]any{
+				{"x": 250, "y": 150},
+			},
+		}
+		editLinkViaBody, _ := json.Marshal(editLinkViaPayload)
+
+		editLinkViaRequest := httptest.NewRequest("PATCH", fmt.Sprintf("/maps/%s/links/%s", mapName, linkToEdit), bytes.NewBuffer(editLinkViaBody))
+		editViaRR := httptest.NewRecorder()
+		server.ServeHTTP(editViaRR, editLinkViaRequest)
+
+		if editViaRR.Code != http.StatusOK {
+			t.Fatalf("EditLink via failed: status %d, body: %s", editViaRR.Code, editViaRR.Body.String())
+		}
+
+		// Verify link updates
+		getRequest := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		getRR := httptest.NewRecorder()
+		server.ServeHTTP(getRR, getRequest)
+		if getRR.Code != http.StatusOK {
+			t.Fatalf("GetMap after link edit failed: status %d, body: %s", getRR.Code, getRR.Body.String())
+		}
+		var updatedMap config.MapWithData
+		if err := json.NewDecoder(getRR.Body).Decode(&updatedMap); err != nil {
+			t.Fatalf("Failed to decode updated map: %v", err)
+		}
+
+		linkFound := false
+		for _, link := range updatedMap.Map.Links {
+			if link.Name == linkToEdit {
+				if link.Bandwidth != "10G" {
+					t.Errorf("Expected bandwidth to be '10G', got '%s'", link.Bandwidth)
+				}
+				if len(link.Via) != 1 || link.Via[0].X != 250 || link.Via[0].Y != 150 {
+					t.Errorf("Expected via to be [{x:250, y:150}], got %+v", link.Via)
+				}
+				linkFound = true
+				break
+			}
+		}
+		if !linkFound {
+			t.Errorf("Link %s not found in updated map", linkToEdit)
+		}
+	})
+
+	t.Run("EditNonExistentLink", func(t *testing.T) {
+		editLinkPayload := map[string]any{
+			"bandwidth": "10G",
+		}
+		editLinkBody, _ := json.Marshal(editLinkPayload)
+
+		editLinkRequest := httptest.NewRequest("PATCH", "/maps/"+mapName+"/links/non-existent-link", bytes.NewBuffer(editLinkBody))
+		editRR := httptest.NewRecorder()
+		server.ServeHTTP(editRR, editLinkRequest)
+
+		if editRR.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d for editing non-existent link, got %d", http.StatusNotFound, editRR.Code)
+		}
+	})
+
+	t.Run("RemoveViaFromLink", func(t *testing.T) {
+		addViaPayload := map[string]any{
+			"via": []map[string]any{
+				{"x": 250, "y": 150},
+			},
+		}
+		addViaBody, _ := json.Marshal(addViaPayload)
+
+		linkToEdit := "link-node1-node2"
+		addViaRequest := httptest.NewRequest("PATCH", fmt.Sprintf("/maps/%s/links/%s", mapName, linkToEdit), bytes.NewBuffer(addViaBody))
+		addViaRR := httptest.NewRecorder()
+		server.ServeHTTP(addViaRR, addViaRequest)
+
+		if addViaRR.Code != http.StatusOK {
+			t.Fatalf("AddVia failed: status %d, body: %s", addViaRR.Code, addViaRR.Body.String())
+		}
+
+		removeViaPayload := map[string]any{
+			"via": []map[string]any{},
+		}
+		removeViaBody, _ := json.Marshal(removeViaPayload)
+
+		removeViaRequest := httptest.NewRequest("PATCH", fmt.Sprintf("/maps/%s/links/%s", mapName, linkToEdit), bytes.NewBuffer(removeViaBody))
+		removeViaRR := httptest.NewRecorder()
+		server.ServeHTTP(removeViaRR, removeViaRequest)
+
+		if removeViaRR.Code != http.StatusOK {
+			t.Fatalf("RemoveVia failed: status %d, body: %s", removeViaRR.Code, removeViaRR.Body.String())
+		}
+
+		getRequest := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		getRR := httptest.NewRecorder()
+		server.ServeHTTP(getRR, getRequest)
+		if getRR.Code != http.StatusOK {
+			t.Fatalf("GetMap after via removal failed: status %d, body: %s", getRR.Code, getRR.Body.String())
+		}
+		var updatedMap config.MapWithData
+		if err := json.NewDecoder(getRR.Body).Decode(&updatedMap); err != nil {
+			t.Fatalf("Failed to decode updated map: %v", err)
+		}
+
+		linkFound := false
+		for _, link := range updatedMap.Map.Links {
+			if link.Name == linkToEdit {
+				if len(link.Via) > 0 {
+					t.Errorf("Expected via to be removed, but got %+v", link.Via)
+				}
+				linkFound = true
+				break
+			}
+		}
+		if !linkFound {
+			t.Errorf("Link %s not found in updated map", linkToEdit)
+		}
+	})
+
 	t.Run("VerifyNodeDeletion", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName, nil)
 		rr := httptest.NewRecorder()
@@ -419,16 +561,16 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(currentMap.Nodes) != 3 {
-			t.Errorf("Expected 3 nodes after deletion, got %d", len(currentMap.Nodes))
+		if len(currentMap.Map.Nodes) != 3 {
+			t.Errorf("Expected 3 nodes after deletion, got %d", len(currentMap.Map.Nodes))
 		}
-		for _, node := range currentMap.Nodes {
+		for _, node := range currentMap.Map.Nodes {
 			if node.Name == nodeToTest {
 				t.Errorf("Deleted node %s is still present", nodeToTest)
 			}
 		}
-		if len(currentMap.Links) != 3 {
-			t.Errorf("Expected 3 links after node deletion, got %d", len(currentMap.Links))
+		if len(currentMap.Map.Links) != 3 {
+			t.Errorf("Expected 3 links after node deletion, got %d", len(currentMap.Map.Links))
 		}
 	})
 
@@ -463,8 +605,8 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(currentMap.Nodes) != 5 {
-			t.Errorf("Expected 5 nodes after bulk addition, got %d", len(currentMap.Nodes))
+		if len(currentMap.Map.Nodes) != 5 {
+			t.Errorf("Expected 5 nodes after bulk addition, got %d", len(currentMap.Map.Nodes))
 		}
 	})
 
@@ -509,8 +651,8 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(currentMap.Nodes) != 3 {
-			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Nodes))
+		if len(currentMap.Map.Nodes) != 3 {
+			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Map.Nodes))
 		}
 	})
 
@@ -533,7 +675,7 @@ func TestAPI(t *testing.T) {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
 
-		for _, link := range currentMap.Links {
+		for _, link := range currentMap.Map.Links {
 			deleteReq := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/links/%s", mapName, link.Name), nil)
 			deleteRR := httptest.NewRecorder()
 			server.ServeHTTP(deleteRR, deleteReq)
@@ -566,7 +708,7 @@ func TestAPI(t *testing.T) {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
 		found := 0
-		for _, link := range currentMap.Links {
+		for _, link := range currentMap.Map.Links {
 			if link.Name == "bulk-link1" || link.Name == "bulk-link2" {
 				found++
 			}
@@ -606,7 +748,7 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		for _, link := range currentMap.Links {
+		for _, link := range currentMap.Map.Links {
 			if link.Name == "bulk-link1" || link.Name == "bulk-link2" {
 				t.Errorf("Bulk link %s was not deleted", link.Name)
 			}
@@ -631,8 +773,8 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(currentMap.Links) != 0 {
-			t.Errorf("Expected 0 links after deletion, got %d", len(currentMap.Links))
+		if len(currentMap.Map.Links) != 0 {
+			t.Errorf("Expected 0 links after deletion, got %d", len(currentMap.Map.Links))
 		}
 	})
 
@@ -656,8 +798,8 @@ func TestAPI(t *testing.T) {
 		if err := json.NewDecoder(rr.Body).Decode(&currentMap); err != nil {
 			t.Fatalf("Failed to decode map response: %v", err)
 		}
-		if len(currentMap.Nodes) != 0 {
-			t.Errorf("Expected 0 nodes after deletion, got %d", len(currentMap.Nodes))
+		if len(currentMap.Map.Nodes) != 0 {
+			t.Errorf("Expected 0 nodes after deletion, got %d", len(currentMap.Map.Nodes))
 		}
 	})
 

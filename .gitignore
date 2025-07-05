@@ -33,3 +33,9 @@ go.work.sum
 
 # TODO planning file
 todo.md
+# Test json map
+map.json
+# Test frontend
+demo-frontend/
+# Test Map
+maps/example-map-test.yaml

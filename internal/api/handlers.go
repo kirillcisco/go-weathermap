@@ -47,6 +47,10 @@ func (s *Server) HandleMapOperations(w http.ResponseWriter, r *http.Request) {
 			s.EditNode(w, r)
 			return
 		}
+		if len(parts) == 3 && parts[1] == "links" {
+			s.EditLink(w, r)
+			return
+		}
 		if len(parts) == 2 && parts[1] == "variables" {
 			s.UpdateMapVariables(w, r, mapName)
 			return
@@ -117,12 +121,12 @@ func (s *Server) ListMapNodes(w http.ResponseWriter, r *http.Request, mapName st
 	}
 	searchQuery := r.URL.Query().Get("search")
 	if searchQuery == "" {
-		respondWithJSON(w, http.StatusOK, mapWithData.Nodes)
+		respondWithJSON(w, http.StatusOK, mapWithData.Map.Nodes)
 		return
 	}
 
 	var filteredNodes []config.Node
-	for _, node := range mapWithData.Nodes {
+	for _, node := range mapWithData.Map.Nodes {
 		if strings.Contains(strings.ToLower(node.Name), strings.ToLower(searchQuery)) {
 			filteredNodes = append(filteredNodes, node)
 		}
@@ -159,7 +163,7 @@ func (s *Server) ListMapLinks(w http.ResponseWriter, r *http.Request, mapName st
 			match = false
 		}
 		if nodeQuery != "" {
-			linkObj := mapWithData.Links[i]
+			linkObj := mapWithData.Map.Links[i]
 			if strings.ToLower(linkObj.From) != nodeQueryLower && strings.ToLower(linkObj.To) != nodeQueryLower {
 				match = false
 			}
@@ -237,9 +241,9 @@ func (s *Server) GetMap(w http.ResponseWriter, r *http.Request) {
 		case "title":
 			filteredData["title"] = mapWithData.Title
 		case "nodes":
-			filteredData["nodes"] = mapWithData.Nodes
+			filteredData["nodes"] = mapWithData.Map.Nodes
 		case "links":
-			filteredData["links"] = mapWithData.Links
+			filteredData["links"] = mapWithData.Map.Links
 		case "bgcolor":
 			filteredData["bgcolor"] = mapWithData.BGColor
 		}
@@ -325,6 +329,32 @@ func (s *Server) EditNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "node updated"})
+}
+
+func (s *Server) EditLink(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/maps/"), "/")
+	mapName := parts[0]
+	linkName := parts[2]
+
+	var linkUpdates map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&linkUpdates); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON for link edit")
+		return
+	}
+
+	if err := s.mapService.EditLink(mapName, linkName, linkUpdates); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "link updated",
+		"name":   linkName,
+	})
 }
 
 func (s *Server) DeleteNode(w http.ResponseWriter, r *http.Request) {

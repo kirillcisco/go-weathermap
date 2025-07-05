@@ -447,6 +447,37 @@ You can use this service to manage maps via an RESTful API (request body is limi
     }
     ```
 
+#### Edit link
+*  **PATCH /maps/{map-name}/links/{link-name}**
+    
+    Edit link bandwidth or via points.
+
+    **Request body (JSON):**
+    ```json
+    {
+      "bandwidth": "10G",
+      "via": [
+        {"x": 250, "y": 150},
+        {"x": 300, "y": 200}
+      ]
+    }
+    ```
+
+    **Or remove via points (empty array):**
+    ```json
+    {
+      "via": []
+    }
+    ```
+
+    **Example response:**
+    ```json
+    {
+      "status": "link updated",
+      "name": "{link-name}"
+    }
+    ```
+
 #### Remove link
 
 *   **DELETE /maps/{map-name}/links/{link-name}**

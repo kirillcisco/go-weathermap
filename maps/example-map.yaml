@@ -5,32 +5,32 @@ bg_color: {r: 255, g: 255, b: 255}
 nodes:
     - name: router1
       label: Core Router 1
-      position: {x: 100, y: 100}
+      position: {x: 109, y: 95}
       icon: router.png
       monitoring: false
     - name: router2
       label: Core Router 2
-      position: {x: 400, y: 100}
+      position: {x: 403, y: 100}
       icon: router.png
       monitoring: false
     - name: switch1
       label: Access Switch 1
-      position: {x: 100, y: 300}
+      position: {x: 107, y: 298}
       icon: switch.png
       monitoring: false
     - name: switch2
       label: Access Switch 2
-      position: {x: 400, y: 300}
+      position: {x: 398, y: 297}
       icon: switch.png
       monitoring: false
     - name: server
       label: Test Server
-      position: {x: 250, y: 500}
+      position: {x: 261, y: 479}
       icon: server.png
       monitoring: false
     - name: leaf
       label: Leaf
-      position: {x: 1000, y: 400}
+      position: {x: 575, y: 198}
       icon: switch.png
       monitoring: false
 links:
@@ -40,6 +40,12 @@ links:
       datasource:
         type: mock
       bandwidth: 10G
+    - name: switch1-switch2
+      from: switch1
+      to: switch2
+      datasource:
+        type: mock
+      bandwidth: 1G
     - name: router1-switch1
       from: router1
       to: switch1
@@ -68,8 +74,9 @@ links:
       from: router1
       to: server
       bandwidth: 500M
+      via: [{x: 340, y: 155}]
 variables:
     location: My Custom Lab
     my_var1: hello
-    zabbix_user: admin
     zabbix_password: secret
+    zabbix_user: admin

@@ -8,17 +8,17 @@ import (
 )
 
 type Map struct {
-	Width   int                `yaml:"width"`
-	Height  int                `yaml:"height"`
-	Title   string             `yaml:"title"`
-	BGColor *Color             `yaml:"bg_color,omitempty,flow"`
-	Scales  map[string][]Scale `yaml:"scales,omitempty"`
+	Width   int                `yaml:"width" json:"width"`
+	Height  int                `yaml:"height" json:"height"`
+	Title   string             `yaml:"title" json:"title"`
+	BGColor *Color             `yaml:"bg_color,omitempty,flow" json:"bgcolor,omitempty"`
+	Scales  map[string][]Scale `yaml:"scales,omitempty" json:"scales,omitempty"`
 
-	Nodes []Node `yaml:"nodes"`
-	Links []Link `yaml:"links"`
+	Nodes []Node `yaml:"nodes" json:"nodes"`
+	Links []Link `yaml:"links" json:"links"`
 
 	// Global variables (like zabbix creds)
-	Variables map[string]string `yaml:"variables,omitempty"`
+	Variables map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
 type Color struct {
@@ -106,8 +106,6 @@ type MapWithData struct {
 	*Map
 	ProcessedAt time.Time  `json:"processed_at"`
 	LinksData   []LinkData `json:"links_data"`
-	Nodes       []Node     `json:"nodes"`
-	Links       []Link     `json:"links"`
 }
 
 type LinkData struct {

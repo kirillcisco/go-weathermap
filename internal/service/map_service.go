@@ -59,8 +59,6 @@ func (s *MapService) addMockData(mapConfig *config.Map) *config.MapWithData {
 		Map:         mapConfig,
 		ProcessedAt: time.Now(),
 		LinksData:   make([]config.LinkData, 0, len(mapConfig.Links)),
-		Nodes:       mapConfig.Nodes,
-		Links:       mapConfig.Links,
 	}
 
 	for _, link := range mapConfig.Links {
@@ -210,6 +208,44 @@ func (s *MapService) EditNode(mapName, nodeName string, updates map[string]any) 
 	}
 
 	return s.saveMap(mapName, mapConfig)
+}
+
+func (s *MapService) EditLink(mapName, linkName string, updates map[string]any) error {
+	mapConfig, err := s.loadMapConfig(mapName)
+	if err != nil {
+		return err
+	}
+
+	for i, link := range mapConfig.Links {
+		if link.Name == linkName {
+
+			if bandwidth, ok := updates["bandwidth"].(string); ok {
+				mapConfig.Links[i].Bandwidth = bandwidth
+			}
+
+			if viaData, ok := updates["via"].([]any); ok {
+
+				if len(viaData) == 0 {
+					mapConfig.Links[i].Via = nil
+				} else {
+					viaPositions := make([]config.Position, 0, len(viaData))
+					for _, item := range viaData {
+						if viaMap, ok := item.(map[string]any); ok {
+							if x, ok := viaMap["x"].(float64); ok {
+								if y, ok := viaMap["y"].(float64); ok {
+									viaPositions = append(viaPositions, config.Position{X: int(x), Y: int(y)})
+								}
+							}
+						}
+					}
+					mapConfig.Links[i].Via = viaPositions
+				}
+			}
+			return s.saveMap(mapName, mapConfig)
+		}
+	}
+
+	return fmt.Errorf("link not found")
 }
 
 func (s *MapService) AddLink(mapName string, newLink *config.Link) error {
