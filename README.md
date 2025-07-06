@@ -513,3 +513,53 @@ You can use this service to manage maps via an RESTful API (request body is limi
       "deleted_count": 2
     }
     ```
+
+### Node icons
+
+#### List all available icons
+
+*   **GET /icons**
+
+    Returns a list of all available icons with their metadata.
+
+    **Example response:**
+    ```json
+    [
+      {
+        "name": "router.svg",
+        "display_name": "Router",
+        "category": "network"
+      },
+      {
+        "name": "server.svg",
+        "display_name": "Server",
+        "category": "servers"
+      },
+      {
+        "name": "cloud.svg",
+        "display_name": "Cloud",
+        "category": "cloud"
+      },
+      {
+        "name": "pc.svg",
+        "display_name": "Pc",
+        "category": "endpoints"
+      }
+    ]
+    ```
+
+#### Get icon file
+
+*   **GET /icons/{icon-name}**
+
+    Returns the actual icon file (SVG format).
+
+    **Headers:**
+    * `Content-Type: image/svg+xml`
+    * `Cache-Control: public, max-age=2592000` (30 days cache)
+
+    **Example:**  
+    `GET /icons/router.svg`
+
+    **Example response:**  
+    Returns the SVG file content directly.

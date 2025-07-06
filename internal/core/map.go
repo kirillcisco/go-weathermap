@@ -35,7 +35,7 @@ type ProcessedLink struct {
 	config.Link
 	InTraffic   int64        `json:"in_traffic"`
 	OutTraffic  int64        `json:"out_traffic"`
-	Utilization float64      `json:"utilization"` // 0-100%
+	Utilization float64      `json:"utilization"` // 0.0-100.0
 	Color       config.Color `json:"color"`
 	Status      string       `json:"status"` // up, down, unknown
 	LastUpdate  time.Time    `json:"last_update"`
@@ -108,8 +108,7 @@ func (mp *MapProcessor) Process(ctx context.Context) (*ProcessedMap, error) {
 			} else {
 				log.Printf("Failed to get traffic for link %s: %v", link.Name, err)
 				processedLink.Status = "down"
-				// grey color for unknown datasource
-				processedLink.Color = config.Color{R: 128, G: 128, B: 128}
+				processedLink.Color = config.Color{R: 128, G: 128, B: 128} // grey color for unknown datasource
 			}
 		}
 

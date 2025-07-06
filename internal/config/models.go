@@ -96,10 +96,10 @@ type DataSourceRef struct {
 }
 
 type TrafficData struct {
-	InBytes     int64     `yaml:"-"`
-	OutBytes    int64     `yaml:"-"`
-	Timestamp   time.Time `yaml:"-"`
-	Utilization float64   `yaml:"-"`
+	InBytes     int64     `yaml:"-" json:"in_bytes"`
+	OutBytes    int64     `yaml:"-" json:"out_bytes"`
+	Timestamp   time.Time `yaml:"-" json:"timestamp"`
+	Utilization float64   `yaml:"-" json:"utilization"`
 }
 
 type MapWithData struct {
@@ -126,4 +126,15 @@ func (p Position) MarshalYAML() (interface{}, error) {
 		},
 	}
 	return node, nil
+}
+
+type IconInfo struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Category    string `json:"category"`
+}
+
+type NodeStatus struct {
+	Status    string    `json:"status"` // up, down, unknown
+	Timestamp time.Time `json:"timestamp"`
 }

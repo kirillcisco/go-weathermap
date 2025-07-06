@@ -3,23 +3,31 @@ package service
 import (
 	"context"
 	"fmt"
-	"go-weathermap/internal/config"
-	"go-weathermap/internal/datasource"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
+
+	"go-weathermap/internal/config"
+	"go-weathermap/internal/datasource"
 
 	"gopkg.in/yaml.v3"
 )
 
 type MapService struct {
 	configDir string
+	iconsDir  string
 	parser    *config.Parser
 }
 
 func NewMapService(configDir string) *MapService {
+	absConfigDir, _ := filepath.Abs(configDir)
+	iconsDir := filepath.Join(filepath.Dir(absConfigDir), "internal", "assets", "icons")
+
 	return &MapService{
 		configDir: configDir,
+		iconsDir:  iconsDir,
 		parser:    config.NewParser(),
 	}
 }
@@ -166,15 +174,24 @@ func (s *MapService) EditMap(mapName string, updates map[string]any) error {
 	if err != nil {
 		return err
 	}
+
 	if title, ok := updates["title"].(string); ok {
 		mapConfig.Title = title
 	}
+
 	if width, ok := updates["width"].(float64); ok {
+		if width <= 0 {
+			return fmt.Errorf("width must be greater than 0")
+		}
 		mapConfig.Width = int(width)
 	}
 	if height, ok := updates["height"].(float64); ok {
+		if height <= 0 {
+			return fmt.Errorf("height must be greater than 0")
+		}
 		mapConfig.Height = int(height)
 	}
+
 	return s.saveMap(mapName, mapConfig)
 }
 
@@ -189,6 +206,9 @@ func (s *MapService) EditNode(mapName, nodeName string, updates map[string]any) 
 		if node.Name == nodeName {
 			if label, ok := updates["label"].(string); ok {
 				mapConfig.Nodes[i].Label = label
+			}
+			if icon, ok := updates["icon"].(string); ok {
+				mapConfig.Nodes[i].Icon = icon
 			}
 			if pos, ok := updates["position"].(map[string]any); ok {
 				if x, ok := pos["x"].(float64); ok {
@@ -241,6 +261,7 @@ func (s *MapService) EditLink(mapName, linkName string, updates map[string]any) 
 					mapConfig.Links[i].Via = viaPositions
 				}
 			}
+
 			return s.saveMap(mapName, mapConfig)
 		}
 	}
@@ -441,4 +462,71 @@ func (s *MapService) UpdateMapVariables(mapName string, variables map[string]str
 
 	mapConfig.Variables = variables
 	return s.saveMap(mapName, mapConfig)
+}
+
+func (s *MapService) ListIcons() ([]config.IconInfo, error) {
+	if err := os.MkdirAll(s.iconsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create icons directory: %w", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(s.iconsDir, "*.svg"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read icons directory: %w", err)
+	}
+
+	icons := make([]config.IconInfo, 0, len(files))
+	for _, file := range files {
+		baseName := filepath.Base(file)
+		ext := filepath.Ext(baseName)
+		name := baseName[:len(baseName)-len(ext)]
+
+		category := "other"
+		switch {
+		case slices.Contains([]string{
+			"router", "switch", "firewall", "loadbalancer", "load_balancer", "lb",
+			"gw", "gateway", "core", "access", "distribution", "edge", "border",
+			"ix", "directconnect", "pni",
+		}, name):
+			category = "network"
+		case slices.Contains([]string{
+			"server", "database", "storage", "nas", "san", "dns", "dhcp", "ntp",
+		}, name):
+			category = "servers"
+		case slices.Contains([]string{
+			"cloud", "aws", "azure", "gcp", "digitalocean",
+		}, name):
+			category = "cloud"
+		case slices.Contains([]string{
+			"pc", "laptop", "phone", "tablet", "mobile", "desktop", "workstation", "monitor",
+		}, name):
+			category = "endpoints"
+		}
+
+		icons = append(icons, config.IconInfo{
+			Name:        baseName,
+			DisplayName: formatDisplayName(name),
+			Category:    category,
+		})
+	}
+
+	return icons, nil
+}
+
+func (s *MapService) GetIconFile(iconName string) ([]byte, string, error) {
+	iconPath := filepath.Join(s.iconsDir, iconName)
+	if data, err := os.ReadFile(iconPath); err == nil {
+		return data, "image/svg+xml", nil
+	}
+
+	return nil, "", fmt.Errorf("icon not found: %s", iconName)
+}
+
+func formatDisplayName(name string) string {
+	words := strings.Split(name, "_")
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+		}
+	}
+	return strings.Join(words, " ")
 }

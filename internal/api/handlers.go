@@ -305,10 +305,18 @@ func (s *Server) EditMap(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON for map edit")
 		return
 	}
+
 	if err := s.mapService.EditMap(mapName, mapUpdates); err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		if strings.Contains(err.Error(), "map not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else if strings.Contains(err.Error(), "must be greater than 0") {
+			respondWithError(w, http.StatusBadRequest, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
+
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "map updated"})
 }
 
@@ -515,4 +523,54 @@ func (s *Server) DeleteLinksBulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondWithJSON(w, http.StatusOK, map[string]any{"status": "links deleted in bulk", "deleted_count": len(linkNames)})
+}
+
+func (s *Server) HandleIcons(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.ListIcons(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) HandleIconFile(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.GetIconFile(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) ListIcons(w http.ResponseWriter, r *http.Request) {
+	icons, err := s.mapService.ListIcons()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, icons)
+}
+
+func (s *Server) GetIconFile(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/icons/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		respondWithError(w, http.StatusBadRequest, "Icon name is required")
+		return
+	}
+
+	iconName := parts[0]
+	iconData, contentType, err := s.mapService.GetIconFile(iconName)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=2592000") // http browser cache
+	w.Write(iconData)
 }

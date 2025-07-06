@@ -63,15 +63,29 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("CreateMapWithInvalidSize", func(t *testing.T) {
-		mapConfig := `{"title": "invalid-size-map", "width": -1, "height": -1}`
-		request := httptest.NewRequest("POST", "/maps", bytes.NewBufferString(mapConfig))
-		rr := httptest.NewRecorder()
+	t.Run("TestValidationErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			method         string
+			path           string
+			body           string
+			expectedStatus int
+		}{
+			{"InvalidMapSize", "POST", "/maps", `{"title":"invalid-size-map","width":-1,"height":-1}`, http.StatusBadRequest},
+			{"NodeOutOfBounds", "POST", "/maps/" + mapName + "/nodes", `{"name":"out-of-bounds-node","position":{"x":600,"y":600}}`, http.StatusBadRequest},
+			{"InvalidBandwidth", "POST", "/maps/" + mapName + "/links", `{"name":"invalid-bw-link","from":"node1","to":"node2","bandwidth":"100   M"}`, http.StatusBadRequest},
+		}
 
-		server.ServeHTTP(rr, request)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+				rec := httptest.NewRecorder()
+				server.ServeHTTP(rec, req)
 
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for invalid map size, got %d", http.StatusBadRequest, rr.Code)
+				if rec.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rec.Code)
+				}
+			})
 		}
 	})
 
@@ -89,17 +103,6 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("AddNodeOutsideMapBounds", func(t *testing.T) {
-		nodeConfig := `{"name": "out-of-bounds-node", "position": {"x": 600, "y": 600}}`
-		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes", bytes.NewBufferString(nodeConfig))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for out-of-bounds node, got %d", http.StatusBadRequest, rr.Code)
-		}
-	})
-
 	t.Run("AddLinksFullMesh", func(t *testing.T) {
 		for i := range nodes {
 			for j := i + 1; j < len(nodes); j++ {
@@ -112,16 +115,6 @@ func TestAPI(t *testing.T) {
 					t.Fatalf("AddLink %s failed: status %d, body: %s", linkName, rr.Code, rr.Body.String())
 				}
 			}
-		}
-	})
-
-	t.Run("AddLinkWithInvalidBandwidth", func(t *testing.T) {
-		linkConfig := `{"name": "invalid-bw-link", "from": "node1", "to": "node2", "bandwidth": "100   M"}`
-		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links", bytes.NewBufferString(linkConfig))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for invalid bandwidth, got %d", http.StatusBadRequest, rr.Code)
 		}
 	})
 
@@ -160,7 +153,6 @@ func TestAPI(t *testing.T) {
 			t.Errorf("Expected %d nodes, got %d", len(nodes), len(gotNodes))
 		}
 
-		// Check filters
 		searchRequest := httptest.NewRequest("GET", "/maps/"+mapName+"/nodes?search="+nodes[0], nil)
 		searchRR := httptest.NewRecorder()
 		server.ServeHTTP(searchRR, searchRequest)
@@ -288,6 +280,66 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("TestEditMapValidationErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			payload        map[string]any
+			expectedStatus int
+		}{
+			{"InvalidWidth", map[string]any{"width": -1}, http.StatusBadRequest},
+			{"InvalidHeight", map[string]any{"height": 0}, http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				editMapBody, _ := json.Marshal(tc.payload)
+				editRequest := httptest.NewRequest("PATCH", "/maps/"+mapName, bytes.NewBuffer(editMapBody))
+				editRR := httptest.NewRecorder()
+				server.ServeHTTP(editRR, editRequest)
+
+				if editRR.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, editRR.Code)
+				}
+			})
+		}
+	})
+
+	t.Run("EditMapPartialUpdate", func(t *testing.T) {
+		editMapPayload := map[string]any{
+			"title": "Partial Update Test",
+		}
+		editMapBody, _ := json.Marshal(editMapPayload)
+
+		editRequest := httptest.NewRequest("PATCH", "/maps/"+mapName, bytes.NewBuffer(editMapBody))
+		editRR := httptest.NewRecorder()
+		server.ServeHTTP(editRR, editRequest)
+
+		if editRR.Code != http.StatusOK {
+			t.Fatalf("EditMap partial update failed: status %d, body: %s", editRR.Code, editRR.Body.String())
+		}
+
+		getRequest := httptest.NewRequest("GET", "/maps/"+mapName, nil)
+		getRR := httptest.NewRecorder()
+		server.ServeHTTP(getRR, getRequest)
+		if getRR.Code != http.StatusOK {
+			t.Fatalf("GetMap after partial update failed: status %d, body: %s", getRR.Code, getRR.Body.String())
+		}
+		var updatedMap config.MapWithData
+		if err := json.NewDecoder(getRR.Body).Decode(&updatedMap); err != nil {
+			t.Fatalf("Failed to decode updated map: %v", err)
+		}
+
+		if updatedMap.Title != "Partial Update Test" {
+			t.Errorf("Expected title to be 'Partial Update Test', got '%s'", updatedMap.Title)
+		}
+		if updatedMap.Width != 1024 {
+			t.Errorf("Expected width to remain 1024, got %d", updatedMap.Width)
+		}
+		if updatedMap.Height != 1024 {
+			t.Errorf("Expected height to remain 1024, got %d", updatedMap.Height)
+		}
+	})
+
 	t.Run("GetMapVariables", func(t *testing.T) {
 		request := httptest.NewRequest("GET", "/maps/"+mapName+"/variables", nil)
 		rr := httptest.NewRecorder()
@@ -355,36 +407,39 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("GetMapVariablesNotFound", func(t *testing.T) {
-		request := httptest.NewRequest("GET", "/maps/non-existent/variables", nil)
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for non-existent map variables, got %d", http.StatusNotFound, rr.Code)
-		}
-	})
-
-	t.Run("UpdateMapVariablesNotFound", func(t *testing.T) {
-		variables := map[string]string{"test": "value"}
-		data, err := json.Marshal(variables)
-		if err != nil {
-			t.Fatalf("Failed to marshal variables: %v", err)
+	t.Run("TestVariablesNotFound", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			method         string
+			path           string
+			body           string
+			expectedStatus int
+		}{
+			{"GetVariablesNotFound", "GET", "/maps/non-existent/variables", "", http.StatusNotFound},
+			{"UpdateVariablesNotFound", "PATCH", "/maps/non-existent/variables", `{"test":"value"}`, http.StatusNotFound},
 		}
 
-		request := httptest.NewRequest("PATCH", "/maps/non-existent/variables", bytes.NewBuffer(data))
-		request.Header.Set("Content-Type", "application/json")
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var req *http.Request
+				if tc.body != "" {
+					req = httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+					req.Header.Set("Content-Type", "application/json")
+				} else {
+					req = httptest.NewRequest(tc.method, tc.path, nil)
+				}
+				rec := httptest.NewRecorder()
+				server.ServeHTTP(rec, req)
 
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for updating non-existent map variables, got %d", http.StatusNotFound, rr.Code)
+				if rec.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rec.Code)
+				}
+			})
 		}
 	})
 
 	nodeToTest := "node4"
 	t.Run("EditNodeThanDeleteNode", func(t *testing.T) {
-		// Edit Node
 		editNodePayload := map[string]any{
 			"label":    "Updated Label for node4",
 			"position": config.Position{X: 450, Y: 450},
@@ -399,7 +454,6 @@ func TestAPI(t *testing.T) {
 			t.Fatalf("EditNode failed: status %d, body: %s", editRR.Code, editRR.Body.String())
 		}
 
-		// Delete Node
 		deleteNodeRequest := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, nodeToTest), nil)
 		deleteRR := httptest.NewRecorder()
 		server.ServeHTTP(deleteRR, deleteNodeRequest)
@@ -476,21 +530,6 @@ func TestAPI(t *testing.T) {
 		}
 		if !linkFound {
 			t.Errorf("Link %s not found in updated map", linkToEdit)
-		}
-	})
-
-	t.Run("EditNonExistentLink", func(t *testing.T) {
-		editLinkPayload := map[string]any{
-			"bandwidth": "10G",
-		}
-		editLinkBody, _ := json.Marshal(editLinkPayload)
-
-		editLinkRequest := httptest.NewRequest("PATCH", "/maps/"+mapName+"/links/non-existent-link", bytes.NewBuffer(editLinkBody))
-		editRR := httptest.NewRecorder()
-		server.ServeHTTP(editRR, editLinkRequest)
-
-		if editRR.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for editing non-existent link, got %d", http.StatusNotFound, editRR.Code)
 		}
 	})
 
@@ -574,12 +613,33 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("DeleteNonExistentNode", func(t *testing.T) {
-		request := httptest.NewRequest("DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, "non-existent-node"), nil)
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for deleting non-existent node, got %d", http.StatusNotFound, rr.Code)
+	t.Run("TestNotFoundErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			method         string
+			path           string
+			body           string
+			expectedStatus int
+		}{
+			{"DeleteNonExistentNode", "DELETE", fmt.Sprintf("/maps/%s/nodes/%s", mapName, "non-existent-node"), "", http.StatusNotFound},
+			{"EditNonExistentLink", "PATCH", "/maps/" + mapName + "/links/non-existent-link", `{"bandwidth":"10G"}`, http.StatusNotFound},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var req *http.Request
+				if tc.body != "" {
+					req = httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+				} else {
+					req = httptest.NewRequest(tc.method, tc.path, nil)
+				}
+				rec := httptest.NewRecorder()
+				server.ServeHTTP(rec, req)
+
+				if rec.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rec.Code)
+				}
+			})
 		}
 	})
 
@@ -610,25 +670,26 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("AddNodesBulkAlreadyExists", func(t *testing.T) {
-		nodesPayload := `[{"name": "bulk-node1", "position": {"x": 50, "y": 50}}]`
-		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-
-		if rr.Code != http.StatusConflict {
-			t.Errorf("Expected status %d for bulk adding existing node, got %d", http.StatusConflict, rr.Code)
+	t.Run("TestBulkNodesErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			body           string
+			expectedStatus int
+		}{
+			{"AddNodesBulkAlreadyExists", `[{"name": "bulk-node1", "position": {"x": 50, "y": 50}}]`, http.StatusConflict},
+			{"AddNodesBulkOutOfMap", `[{"name": "out-of-bounds-bulk", "position": {"x": 2000, "y": 2000}}]`, http.StatusBadRequest},
 		}
-	})
 
-	t.Run("AddNodesBulkOutOfMap", func(t *testing.T) {
-		nodesPayload := `[{"name": "out-of-bounds-bulk", "position": {"x": 2000, "y": 2000}}]`
-		request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(nodesPayload))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				request := httptest.NewRequest("POST", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(tc.body))
+				rr := httptest.NewRecorder()
+				server.ServeHTTP(rr, request)
 
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for bulk adding out-of-bounds node, got %d", http.StatusBadRequest, rr.Code)
+				if rr.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rr.Code)
+				}
+			})
 		}
 	})
 
@@ -653,16 +714,6 @@ func TestAPI(t *testing.T) {
 		}
 		if len(currentMap.Map.Nodes) != 3 {
 			t.Errorf("Expected 3 nodes after bulk deletion, got %d", len(currentMap.Map.Nodes))
-		}
-	})
-
-	t.Run("DeleteNodesBulkNotExists", func(t *testing.T) {
-		deletePayload := `{"nodes": ["non-existent-bulk"]}`
-		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/nodes/bulk", bytes.NewBufferString(deletePayload))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for bulk deleting non-existent node, got %d", http.StatusNotFound, rr.Code)
 		}
 	})
 
@@ -718,14 +769,25 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("AddLinksBulkAlreadyExists", func(t *testing.T) {
-		linksPayload := `[{"name": "bulk-link1", "from": "node1", "to": "node2", "bandwidth": "100M"}]`
-		request := httptest.NewRequest("POST", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(linksPayload))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
+	t.Run("TestBulkLinksErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			body           string
+			expectedStatus int
+		}{
+			{"AddLinksBulkAlreadyExists", `[{"name": "bulk-link1", "from": "node1", "to": "node2", "bandwidth": "100M"}]`, http.StatusConflict},
+		}
 
-		if rr.Code != http.StatusConflict {
-			t.Errorf("Expected status %d for bulk adding existing link, got %d", http.StatusConflict, rr.Code)
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				request := httptest.NewRequest("POST", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(tc.body))
+				rr := httptest.NewRecorder()
+				server.ServeHTTP(rr, request)
+
+				if rr.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rr.Code)
+				}
+			})
 		}
 	})
 
@@ -755,13 +817,28 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("DeleteLinksBulkNotExists", func(t *testing.T) {
-		deletePayload := `["non-existent-bulk-link"]`
-		request := httptest.NewRequest("DELETE", "/maps/"+mapName+"/links/bulk", bytes.NewBufferString(deletePayload))
-		rr := httptest.NewRecorder()
-		server.ServeHTTP(rr, request)
-		if rr.Code != http.StatusNotFound {
-			t.Errorf("Expected status %d for bulk deleting non-existent link, got %d", http.StatusNotFound, rr.Code)
+	t.Run("TestBulkDeleteNotFound", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			method         string
+			path           string
+			body           string
+			expectedStatus int
+		}{
+			{"DeleteNodesBulkNotExists", "DELETE", "/maps/" + mapName + "/nodes/bulk", `{"nodes": ["non-existent-bulk"]}`, http.StatusNotFound},
+			{"DeleteLinksBulkNotExists", "DELETE", "/maps/" + mapName + "/links/bulk", `["non-existent-bulk-link"]`, http.StatusNotFound},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				request := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+				rr := httptest.NewRecorder()
+				server.ServeHTTP(rr, request)
+
+				if rr.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rr.Code)
+				}
+			})
 		}
 	})
 
@@ -821,6 +898,84 @@ func TestAPI(t *testing.T) {
 		}
 		if strings.Contains(rr.Body.String(), mapName) {
 			t.Errorf("Map %s was not deleted, found in list", mapName)
+		}
+	})
+
+	t.Run("TestIcons", func(t *testing.T) {
+		iconsDir := tempDir + "/../internal/assets/icons"
+		if err := os.MkdirAll(iconsDir, 0755); err != nil {
+			t.Fatalf("Failed to create icons directory: %v", err)
+		}
+
+		testIconContent := `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="blue"/></svg>`
+		testIconPath := iconsDir + "/test-router.svg"
+		if err := os.WriteFile(testIconPath, []byte(testIconContent), 0644); err != nil {
+			t.Fatalf("Failed to create test icon: %v", err)
+		}
+
+		listRequest := httptest.NewRequest("GET", "/icons", nil)
+		listRR := httptest.NewRecorder()
+		server.ServeHTTP(listRR, listRequest)
+
+		if listRR.Code != http.StatusOK {
+			t.Fatalf("ListIcons failed: expected status 200, got %d. Body: %s", listRR.Code, listRR.Body.String())
+		}
+
+		var icons []config.IconInfo
+		if err := json.NewDecoder(listRR.Body).Decode(&icons); err != nil {
+			t.Fatalf("Failed to decode icons response: %v", err)
+		}
+
+		if icons == nil {
+			t.Error("Expected icons array, got nil")
+		}
+
+		fileRequest := httptest.NewRequest("GET", "/icons/test-router.svg", nil)
+		fileRR := httptest.NewRecorder()
+		server.ServeHTTP(fileRR, fileRequest)
+
+		if fileRR.Code != http.StatusOK {
+			t.Fatalf("GetIconFile failed: expected status 200, got %d. Body: %s", fileRR.Code, fileRR.Body.String())
+		}
+
+		contentType := fileRR.Header().Get("Content-Type")
+		if contentType != "image/svg+xml" {
+			t.Errorf("Expected Content-Type image/svg+xml, got %s", contentType)
+		}
+
+		cacheControl := fileRR.Header().Get("Cache-Control")
+		if cacheControl != "public, max-age=2592000" {
+			t.Errorf("Expected Cache-Control public, max-age=2592000, got %s", cacheControl)
+		}
+
+		if fileRR.Body.String() != testIconContent {
+			t.Errorf("Expected icon content to match, got different content")
+		}
+	})
+
+	t.Run("TestIconsErrors", func(t *testing.T) {
+		testCases := []struct {
+			name           string
+			path           string
+			method         string
+			expectedStatus int
+		}{
+			{"ListIconsWrongMethod", "/icons", "POST", http.StatusMethodNotAllowed},
+			{"GetIconFileNotFound", "/icons/non-existent-icon.svg", "GET", http.StatusNotFound},
+			{"GetIconFileWrongMethod", "/icons/test.svg", "POST", http.StatusMethodNotAllowed},
+			{"GetIconFileEmptyName", "/icons/", "GET", http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(tc.method, tc.path, nil)
+				rec := httptest.NewRecorder()
+				server.ServeHTTP(rec, req)
+
+				if rec.Code != tc.expectedStatus {
+					t.Errorf("Expected status %d, got %d", tc.expectedStatus, rec.Code)
+				}
+			})
 		}
 	})
 

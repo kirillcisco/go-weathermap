@@ -1,37 +1,37 @@
 width: 1200
 height: 800
-title: Test Network Map
+title: Example map
 bg_color: {r: 255, g: 255, b: 255}
 nodes:
     - name: router1
       label: Core Router 1
-      position: {x: 109, y: 95}
-      icon: router.png
+      position: {x: 109, y: 89}
+      icon: router.svg
       monitoring: false
     - name: router2
       label: Core Router 2
-      position: {x: 403, y: 100}
-      icon: router.png
+      position: {x: 405, y: 94}
+      icon: router.svg
       monitoring: false
     - name: switch1
       label: Access Switch 1
-      position: {x: 107, y: 298}
-      icon: switch.png
+      position: {x: 102, y: 294}
+      icon: switch.svg
       monitoring: false
     - name: switch2
       label: Access Switch 2
       position: {x: 398, y: 297}
-      icon: switch.png
+      icon: switch.svg
       monitoring: false
     - name: server
       label: Test Server
       position: {x: 261, y: 479}
-      icon: server.png
+      icon: server.svg
       monitoring: false
     - name: leaf
       label: Leaf
       position: {x: 575, y: 198}
-      icon: switch.png
+      icon: switch.svg
       monitoring: false
 links:
     - name: core-link
