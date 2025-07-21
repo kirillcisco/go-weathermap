@@ -15,20 +15,11 @@ func NewParser() *Parser {
 }
 
 func (p *Parser) ParseYAML(r io.Reader) (*Map, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
-	}
-
 	var m Map
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	decoder := yaml.NewDecoder(r)
+	if err := decoder.Decode(&m); err != nil {
+		return nil, err
 	}
-
-	if err := p.Validate(&m); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
-	}
-
 	return &m, nil
 }
 

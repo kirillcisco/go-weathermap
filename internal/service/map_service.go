@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	"go-weathermap/internal/config"
-	"go-weathermap/internal/datasource"
+	"go-weathermap/internal/utils"
 
 	"gopkg.in/yaml.v3"
 )
@@ -52,43 +53,51 @@ func (s *MapService) GetMap(name string) (*config.Map, error) {
 	return s.loadMapConfig(name)
 }
 
-func (s *MapService) GetMapWithData(name string) (*config.MapWithData, error) {
+func (s *MapService) GetMapWithData(name string, dsService *DataSourceService) (*config.MapWithData, error) {
 	mapConfig, err := s.loadMapConfig(name)
 	if err != nil {
 		return nil, err
 	}
-
-	mapWithData := s.addMockData(mapConfig)
-	return mapWithData, nil
-}
-
-func (s *MapService) addMockData(mapConfig *config.Map) *config.MapWithData {
-	result := &config.MapWithData{
-		Map:         mapConfig,
-		ProcessedAt: time.Now(),
-		LinksData:   make([]config.LinkData, 0, len(mapConfig.Links)),
-	}
-
+	linksData := make([]config.LinkData, 0, len(mapConfig.Links))
 	for _, link := range mapConfig.Links {
 		linkData := config.LinkData{
 			Name:   link.Name,
 			Status: "unknown",
 		}
 
-		if link.DataSource != nil {
-			mock := datasource.NewMockDataSource(nil)
-			if traffic, err := mock.GetTraffic(context.Background()); err == nil {
-				linkData.Utilization = traffic.Utilization
+		if dsService != nil && link.DataSource != "" && link.Interface != "" && len(link.Metrics) > 0 {
+			fmt.Printf("[MAP DEBUG] link=%s ds=%s iface=%s metrics=%v\n", link.Name, link.DataSource, link.Interface, link.Metrics)
+
+			metrics, err := dsService.GetInterfaceMetrics(
+				context.Background(), link.DataSource, link.Interface, link.Metrics)
+
+			fmt.Printf("[MAP DEBUG] metrics result: %v err: %v\n", metrics, err)
+
+			if err == nil {
 				linkData.Status = "up"
+				linkData.Metrics = metrics
+
+				if inVal, okIn := metrics["in"].(int64); okIn {
+					if outVal, okOut := metrics["out"].(int64); okOut {
+						bw := utils.ParseBandwidth(link.Bandwidth)
+						if bw > 0 {
+							utilization := float64(max(inVal, outVal)) / float64(bw) * 100
+							linkData.Utilization = math.Round(utilization*10) / 10
+						}
+					}
+				}
 			} else {
 				linkData.Status = "down"
+				fmt.Printf("[ERROR] Failed to get metrics for link %s: %v\n", link.Name, err)
 			}
 		}
-
-		result.LinksData = append(result.LinksData, linkData)
+		linksData = append(linksData, linkData)
 	}
-
-	return result
+	return &config.MapWithData{
+		Map:         mapConfig,
+		ProcessedAt: time.Now(),
+		LinksData:   linksData,
+	}, nil
 }
 
 func (s *MapService) CreateMap(newMap *config.Map, mapName string) error {

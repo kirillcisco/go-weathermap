@@ -14,8 +14,9 @@ type Map struct {
 	BGColor *Color             `yaml:"bg_color,omitempty,flow" json:"bgcolor,omitempty"`
 	Scales  map[string][]Scale `yaml:"scales,omitempty" json:"scales,omitempty"`
 
-	Nodes []Node `yaml:"nodes" json:"nodes"`
-	Links []Link `yaml:"links" json:"links"`
+	Nodes       []Node             `yaml:"nodes" json:"nodes"`
+	Links       []Link             `yaml:"links" json:"links"`
+	Datasources []DataSourceConfig `yaml:"datasources" json:"datasources"`
 
 	// Global variables (like zabbix creds)
 	Variables map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
@@ -80,7 +81,9 @@ type Link struct {
 	Name         string         `yaml:"name"`
 	From         string         `yaml:"from"`
 	To           string         `yaml:"to"`
-	DataSource   *DataSourceRef `yaml:"datasource,omitempty"`
+	DataSource   string         `yaml:"datasource,omitempty" json:"datasource,omitempty"`
+	Interface    string         `yaml:"interface,omitempty" json:"interface,omitempty"`
+	Metrics      []string       `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	OverlibGraph *DataSourceRef `yaml:"overlib_graph,omitempty"`
 	Bandwidth    string         `yaml:"bandwidth,omitempty"`
 	Width        int            `yaml:"width,omitempty"`
@@ -109,9 +112,10 @@ type MapWithData struct {
 }
 
 type LinkData struct {
-	Name        string  `json:"name"`
-	Utilization float64 `json:"utilization"`
-	Status      string  `json:"status"`
+	Name        string                 `json:"name"`
+	Utilization float64                `json:"utilization"`
+	Status      string                 `json:"status"`
+	Metrics     map[string]interface{} `json:"metrics,omitempty"`
 }
 
 func (p Position) MarshalYAML() (interface{}, error) {
@@ -137,4 +141,17 @@ type IconInfo struct {
 type NodeStatus struct {
 	Status    string    `json:"status"` // up, down, unknown
 	Timestamp time.Time `json:"timestamp"`
+}
+
+type InterfaceConfig struct {
+	Name   string                 `yaml:"name" json:"name"`
+	Params map[string]interface{} `yaml:",inline"`
+}
+
+type DataSourceConfig struct {
+	Name         string                 `yaml:"name" json:"name"`
+	Type         string                 `yaml:"type" json:"type"`
+	Interfaces   []InterfaceConfig      `yaml:"interfaces" json:"interfaces"`
+	PollInterval int                    `yaml:"poll_interval,omitempty" json:"poll_interval,omitempty"`
+	Params       map[string]interface{} `yaml:",inline"`
 }

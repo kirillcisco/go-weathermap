@@ -37,5 +37,6 @@ todo.md
 map.json
 # Test frontend
 demo-frontend/
-# Test Map
+# Test Maps
 maps/example-map-test.yaml
+maps/mikrotik-test.yaml

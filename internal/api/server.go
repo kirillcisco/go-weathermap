@@ -6,19 +6,22 @@ import (
 	"net/http"
 
 	"go-weathermap/internal/service"
+	"go-weathermap/internal/utils"
 )
 
 const maxRequestBodySize = 1048576
 
 type Server struct {
-	mapService *service.MapService
-	router     *http.ServeMux
+	mapService        *service.MapService
+	dataSourceService *service.DataSourceService
+	router            *http.ServeMux
 }
 
-func NewServer(configDir string) *Server {
+func NewServer(mapService *service.MapService, dsService *service.DataSourceService) *Server {
 	s := &Server{
-		mapService: service.NewMapService(configDir),
-		router:     http.NewServeMux(),
+		mapService:        mapService,
+		dataSourceService: dsService,
+		router:            http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -29,7 +32,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Health(w http.ResponseWriter, r *http.Request) {
-	respondWithJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	utils.RespondWithJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) Start(addr string) {

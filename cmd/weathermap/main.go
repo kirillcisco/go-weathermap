@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"go-weathermap/internal/api"
+	"go-weathermap/internal/service"
 )
 
 func main() {
@@ -13,7 +14,17 @@ func main() {
 		configDir = os.Args[1]
 	}
 
-	server := api.NewServer(configDir)
+	datasources, err := service.LoadAllDataSources(configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error while load datasource: %v\n", err)
+		os.Exit(1)
+	}
+	dsService := service.NewDataSourceService(datasources)
+	dsService.Start()
+
+	mapService := service.NewMapService(configDir)
+
+	server := api.NewServer(mapService, dsService)
 
 	fmt.Println("Starting weathermap server on :8080")
 	fmt.Println("API endpoints:")
